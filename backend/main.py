@@ -18,6 +18,8 @@ from engines.hmm_regime_engine import HMMRegimeEngine
 
 from engines.signal_engine import calculate_signal_engine
 
+from engines.correlation_engine import calculate_correlation_intelligence
+
 app = FastAPI()
 
 hmm_engine = HMMRegimeEngine()
@@ -89,6 +91,10 @@ def get_market():
     # =========================
 
     hmm_data = hmm_engine.classify_regimes(df)
+
+    correlation_data = calculate_correlation_intelligence(
+        regime_label=hmm_data["regime_label"],
+    )
 
     # =========================
     # MARKET REGIME
@@ -277,4 +283,12 @@ def get_market():
         "mean_revert_probability": hmm_data["mean_revert_probability"],
         # CHART
         "chart_data": chart_data,
+        # CROSS-ASSET CORRELATION
+        "correlation": correlation_data,
     }
+
+
+@app.get("/correlation")
+def get_correlation():
+
+    return calculate_correlation_intelligence()

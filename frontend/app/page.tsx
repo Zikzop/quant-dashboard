@@ -96,7 +96,7 @@ export default function Home() {
 
             </div>
 
-            <HeatmapPanel />
+            <HeatmapPanel market={market} />
 
           </div>
 

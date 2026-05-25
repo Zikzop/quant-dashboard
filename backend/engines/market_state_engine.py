@@ -64,4 +64,8 @@ def build_market_state(
         "adx": round(adx, 2),
         "volatility": round(volatility * 100, 2),
         "risk_state": risk_result["risk_regime"],
+        "trend_strength": adx_result["strength"],
+        "direction": adx_result["direction"],
+        "plus_di": adx_result["plus_di"],
+        "minus_di": adx_result["minus_di"],
     }

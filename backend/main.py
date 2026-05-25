@@ -7,7 +7,6 @@ import numpy as np
 
 from engines.adx_engine import (
     ADXRegimeEngine,
-    RegimeEngineConfig,
     adx_result_to_dict,
 )
 
@@ -22,6 +21,8 @@ from engines.signal_engine import calculate_signal_engine
 app = FastAPI()
 
 hmm_engine = HMMRegimeEngine()
+
+adx_engine = ADXRegimeEngine()
 
 app.add_middleware(
     CORSMiddleware,
@@ -120,25 +121,92 @@ def get_market():
     # CHART DATA
     # =========================
 
+    adx_latest = adx_engine.compute_latest(df)
+
+    adx_result = adx_result_to_dict(adx_latest)
+
     chart_data = []
 
     for index, row in df.tail(30).iterrows():
 
         chart_data.append(
             {
-                "time": index.strftime("%Y-%m-%d"),
-                "open": round(float(row["Open"]), 2),
-                "high": round(float(row["High"]), 2),
-                "low": round(float(row["Low"]), 2),
-                "close": round(float(row["Close"]), 2),
-                "ema20": round(float(row["EMA20"]), 2),
-                "ema50": round(float(row["EMA50"]), 2),
+                "time":
+                    index.strftime("%Y-%m-%d"),
+
+                "open":
+                    round(float(row["Open"]), 2),
+
+                "high":
+                    round(float(row["High"]), 2),
+
+                "low":
+                    round(float(row["Low"]), 2),
+
+                "close":
+                    round(float(row["Close"]), 2),
+
+                "ema20":
+                    round(float(row["EMA20"]), 2),
+
+                "ema50":
+                    round(float(row["EMA50"]), 2),
+
+                # =====================
+                # REAL INTELLIGENCE
+                # =====================
+
+                "adx":
+                    round(
+                        float(adx_result["adx"]),
+                        2
+                    ),
+
+                "direction":
+                    adx_result["direction"],
+
+                "trend_strength":
+                    adx_result["strength"],
+
+                "hmm_regime":
+                    hmm_data["regime_label"],
+
+                "trend_probability":
+                    round(
+                        float(
+                            hmm_data[
+                                "trend_probability"
+                            ]
+                        ),
+                        4
+                    ),
+
+                "crisis_probability":
+                    round(
+                        float(
+                            hmm_data[
+                                "crisis_probability"
+                            ]
+                        ),
+                        4
+                    ),
+
+                "garch_vol":
+                    round(
+                        float(
+                            garch_data[
+                                "garch_vol"
+                            ]
+                        ),
+                        4
+                    ),
+
+                "vol_regime":
+                    garch_data[
+                        "vol_regime"
+                    ],
             }
         )
-
-    adx_latest = regime_engine.compute_latest(df)
-
-    adx_result = adx_result_to_dict(adx_latest)
 
     market_state = build_market_state(
         adx_result=adx_result,

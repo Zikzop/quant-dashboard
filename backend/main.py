@@ -227,7 +227,10 @@ def get_market():
     print("Momentum:", momentum)
     print("Volatility:", volatility)
     print("Trend:", trend)
-    print("Regime:", regime)
+    print(
+        "Structure Regime:",
+        structure_regime,
+    )
 
     print("GARCH VOL:", garch_data["garch_vol"])
 
@@ -256,6 +259,7 @@ def get_market():
         "ema20": round(ema20, 2),
         "ema50": round(ema50, 2),
         "momentum": round(momentum, 2),
+        "regime": hmm_data["regime_label"],
         "structure_regime": structure_regime,
         # SIGNAL ENGINE
         "signal": signal_data["signal"],

@@ -93,16 +93,16 @@ def get_market():
     # MARKET REGIME
     # =========================
 
-    regime = "RANGING"
+    structure_regime = "RANGING"
 
     if garch_data["vol_regime"] == "EXPANDING_VOL":
-        regime = "VOLATILE"
+        structure_regime = "VOLATILE"
 
     if trend == "BULLISH" and momentum > 5:
-        regime = "TRENDING_BULL"
+        structure_regime = "TRENDING_BULL"
 
     elif trend == "BEARISH" and momentum < -5:
-        regime = "TRENDING_BEAR"
+        structure_regime = "TRENDING_BEAR"
 
     # =========================
     # SIGNAL ENGINE
@@ -140,15 +140,12 @@ def get_market():
 
     adx_result = adx_result_to_dict(adx_latest)
 
-    market_state = {
-        "market_regime": adx_result["regime"],
-        "trend_strength": adx_result["strength"],
-        "direction": adx_result["direction"],
-        "adx": adx_result["adx"],
-        "plus_di": adx_result["plus_di"],
-        "minus_di": adx_result["minus_di"],
-        "di_spread": adx_result["di_spread"],
-    }
+    market_state = build_market_state(
+        adx_result=adx_result,
+        garch_result={"volatility": garch_data["garch_vol"]},
+        hmm_result={"regime": hmm_data["regime_label"]},
+        risk_result={"risk_regime": signal_data["signal"]},
+    )
 
     # =========================
     # DEBUG
@@ -191,7 +188,7 @@ def get_market():
         "ema20": round(ema20, 2),
         "ema50": round(ema50, 2),
         "momentum": round(momentum, 2),
-        "regime": regime,
+        "structure_regime": structure_regime,
         # SIGNAL ENGINE
         "signal": signal_data["signal"],
         "signal_score": signal_data["signal_score"],

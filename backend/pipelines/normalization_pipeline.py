@@ -109,4 +109,5 @@ class NormalizationPipeline:
         out = df.reset_index()
         if out.columns[0] != "timestamp":
             out = out.rename(columns={out.columns[0]: "timestamp"})
-        return out[CANONICAL_COLUMNS]
+        other_cols = [c for c in out.columns if c != "timestamp"]
+        return out[["timestamp", *other_cols]]

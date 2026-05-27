@@ -489,6 +489,8 @@ export default function MainChart({ market }: { market: MarketPayload }) {
   const slip = useExecutionStore((s) => s.slippage);
   const lat = useExecutionStore((s) => s.latency);
   const htfPenalty = useTimeframeStore((s) => s.alignment.htf_conflict_penalty);
+  const activeTF = useTimeframeStore((s) => s.activeTimeframe);
+  const tfLoading = useTimeframeStore((s) => s.loadingTimeframes);
 
   const entryQuality = useMemo(() => computeEntryQuality(
     market,
@@ -500,6 +502,8 @@ export default function MainChart({ market }: { market: MarketPayload }) {
 
   useEffect(() => {
     if (!containerRef.current || !market?.chart_data?.length) return;
+
+    const isIntraday = typeof market.chart_data[0]?.time === "number";
 
     const chart = createChart(containerRef.current, {
       layout: {
@@ -525,7 +529,7 @@ export default function MainChart({ market }: { market: MarketPayload }) {
       },
       timeScale: {
         borderColor: C.border,
-        timeVisible: true,
+        timeVisible: isIntraday,
         secondsVisible: false,
       },
     });
@@ -563,18 +567,21 @@ export default function MainChart({ market }: { market: MarketPayload }) {
 
     const transitionSeries = chart.addSeries(HistogramSeries, { priceFormat: { type: "volume" }, priceScaleId: "vol" });
 
-    // Data mapping
-    const candles = market.chart_data.map((b) => ({ time: b.time, open: finiteNum(b.open), high: finiteNum(b.high), low: finiteNum(b.low), close: finiteNum(b.close) }));
-    const ema20Data = market.chart_data.map((b) => ({ time: b.time, value: finiteNum(b.ema20) }));
-    const ema50Data = market.chart_data.map((b) => ({ time: b.time, value: finiteNum(b.ema50) }));
+    // Data mapping — cast time to satisfy lightweight-charts branded Time type
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const t = (v: string | number): any => v;
+
+    const candles = market.chart_data.map((b) => ({ time: t(b.time), open: finiteNum(b.open), high: finiteNum(b.high), low: finiteNum(b.low), close: finiteNum(b.close) }));
+    const ema20Data = market.chart_data.map((b) => ({ time: t(b.time), value: finiteNum(b.ema20) }));
+    const ema50Data = market.chart_data.map((b) => ({ time: t(b.time), value: finiteNum(b.ema50) }));
 
     const trendBars = market.chart_data.filter((b) => b.hmm_regime === "TRENDING");
     const volBars = market.chart_data.filter((b) => b.hmm_regime === "MEAN_REVERT");
     const crisisBars = market.chart_data.filter((b) => b.hmm_regime === "CRISIS");
-    const toOverlay = (bars: typeof market.chart_data) => bars.map((b) => ({ time: b.time, value: b.close }));
+    const toOverlay = (bars: typeof market.chart_data) => bars.map((b) => ({ time: t(b.time), value: b.close }));
 
     const volHistData = market.chart_data.map((b) => ({
-      time: b.time,
+      time: t(b.time),
       value: finiteNum(b.garch_vol),
       color: finiteNum(b.close) > finiteNum(b.open) ? "rgba(34,197,94,0.40)" : "rgba(239,68,68,0.40)",
     }));
@@ -583,7 +590,7 @@ export default function MainChart({ market }: { market: MarketPayload }) {
       const prev = market.chart_data[idx - 1];
       const isTransition = prev && ((b.hmm_regime && prev.hmm_regime !== b.hmm_regime) || (b.direction && prev.direction !== b.direction));
       return {
-        time: b.time,
+        time: t(b.time),
         value: isTransition ? (volHistData[idx]?.value ?? 0) * 3 : 0,
         color: "rgba(239,68,68,0.9)",
       };
@@ -599,10 +606,8 @@ export default function MainChart({ market }: { market: MarketPayload }) {
     transitionSeries.setData(transitionData);
 
     // Markers — only show if signals not suppressed
-    const markers: Array<{
-      time: string; position: "aboveBar" | "belowBar"; color: string;
-      shape: "arrowUp" | "arrowDown" | "circle"; text: string; size: number;
-    }> = [];
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const markers: any[] = [];
 
     if (!entryQuality.signals_suppressed) {
       market.chart_data.forEach((b, idx) => {
@@ -614,11 +619,11 @@ export default function MainChart({ market }: { market: MarketPayload }) {
 
         const dir = (b.direction ?? "").toUpperCase();
         if (dir.includes("BULL")) {
-          markers.push({ time: b.time, position: "belowBar", color: C.bullish, shape: "arrowUp", text: "BULL REGIME", size: 1 });
+          markers.push({ time: t(b.time), position: "belowBar", color: C.bullish, shape: "arrowUp", text: "BULL REGIME", size: 1 });
         } else if (dir.includes("BEAR")) {
-          markers.push({ time: b.time, position: "aboveBar", color: C.bearish, shape: "arrowDown", text: "BEAR REGIME", size: 1 });
+          markers.push({ time: t(b.time), position: "aboveBar", color: C.bearish, shape: "arrowDown", text: "BEAR REGIME", size: 1 });
         } else if (b.hmm_regime === "CRISIS" || hmmChanged) {
-          markers.push({ time: b.time, position: "aboveBar", color: C.volatile, shape: "circle", text: "REGIME BREAK", size: 1 });
+          markers.push({ time: t(b.time), position: "aboveBar", color: C.volatile, shape: "circle", text: "REGIME BREAK", size: 1 });
         }
       });
     }
@@ -645,8 +650,11 @@ export default function MainChart({ market }: { market: MarketPayload }) {
             {market.symbol?.replace("-", " / ") ?? "BTC / USD"}
           </span>
           <span style={{ fontSize: 8, color: C.t3, background: C.surface, border: `1px solid ${C.border}`, padding: "1px 5px", letterSpacing: "0.1em" }}>
-            PERPETUAL
+            {activeTF}
           </span>
+          {tfLoading.includes(activeTF) && (
+            <span className="animate-pulse" style={{ fontSize: 8, color: C.volatile, letterSpacing: "0.1em" }}>LOADING...</span>
+          )}
           <div className="h-3 w-px" style={{ background: C.border }} />
           <span style={{ fontSize: 9, color: C.t3, letterSpacing: "0.06em" }}>MULTI-TIMEFRAME DECISION ENGINE</span>
         </div>

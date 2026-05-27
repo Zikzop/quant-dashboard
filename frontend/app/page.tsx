@@ -1,7 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 
 import TopBar from "../src/components/quant/TopBar";
 import WorkspaceNav from "../src/components/workspace/WorkspaceNav";
@@ -9,6 +9,7 @@ import MarketIntelligenceStrip from "@/visualization/intelligence/MarketIntellig
 import TimeframeSelector from "@/components/mtf/TimeframeSelector";
 import { useMarketStore } from "@/state/stores/useMarketStore";
 import { useTimeframeStore } from "@/state/stores/useTimeframeStore";
+import { TIMEFRAMES, type Timeframe } from "@/types/market";
 
 const MainChart = dynamic(() => import("../src/components/quant/MainChart"), {
   ssr: false,
@@ -43,28 +44,35 @@ export default function Home() {
   const setMarket = useMarketStore((s) => s.setMarket);
   const setError = useMarketStore((s) => s.setError);
   const activeWorkspace = useMarketStore((s) => s.activeWorkspace);
-  const updateMTF = useTimeframeStore((s) => s.updateFromMarket);
+  const didInit = useRef(false);
 
   useEffect(() => {
-    let cancelled = false;
+    if (didInit.current) return;
+    didInit.current = true;
 
-    fetch("http://127.0.0.1:8000/market")
+    let cancelled = false;
+    const tfStore = useTimeframeStore.getState();
+    const activeTF = tfStore.activeTimeframe;
+
+    fetch(`http://127.0.0.1:8000/market/timeframe/${activeTF}`)
       .then((res) => {
         if (!res.ok) throw new Error(`Market API returned ${res.status}`);
         return res.json();
       })
       .then((data) => {
-        if (!cancelled) {
-          setMarket(data);
-          updateMTF(data);
-        }
+        if (cancelled) return;
+        setMarket(data);
+        tfStore.setTimeframeData(activeTF, data);
+
+        const remaining = TIMEFRAMES.filter((tf) => tf !== activeTF);
+        remaining.forEach((tf) => tfStore.fetchTimeframe(tf));
       })
       .catch((err: unknown) => {
         if (!cancelled) setError(err instanceof Error ? err.message : "Failed to load market data");
       });
 
     return () => { cancelled = true; };
-  }, [setMarket, setError, updateMTF]);
+  }, [setMarket, setError]);
 
   if (error) {
     return (

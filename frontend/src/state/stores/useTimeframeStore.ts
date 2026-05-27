@@ -9,110 +9,50 @@ import type {
   ChartBar,
 } from "@/types/market";
 import { TIMEFRAMES, TF_HIERARCHY } from "@/types/market";
+import { useMarketStore } from "./useMarketStore";
 
 // ─────────────────────────────────────────────────────────────────────────────
-// SIMULATED PER-TIMEFRAME REGIME DATA
-// In production, each timeframe would come from backend regime engines.
-// Here we derive synthetic MTF regimes from the primary market data to
-// demonstrate the architecture — the structure is ready for real endpoints.
+// EXTRACT REAL REGIME DATA from a backend MarketPayload
 // ─────────────────────────────────────────────────────────────────────────────
 
-function deriveTimeframeRegimes(market: MarketPayload): TimeframeRegime[] {
+function probNorm(v?: number): number {
+  if (v == null || Number.isNaN(v)) return 0;
+  return v > 1 ? v / 100 : v;
+}
+
+function extractRegimeFromPayload(
+  tf: Timeframe,
+  market: MarketPayload,
+): TimeframeRegime {
   const state = market.market_state;
-  const hmm = market.hmm_regime ?? "UNKNOWN";
-  const adx = state?.adx ?? 20;
-  const confidence = state?.confidence ?? 0.5;
-  const trendProb = market.trend_probability ?? 0.5;
-  const meanRevProb = market.mean_revert_probability ?? 0.3;
-  const crisisProb = market.crisis_probability ?? 0.1;
-  const direction = state?.direction ?? "NEUTRAL";
-  const strength = state?.trend_strength ?? "WEAK";
-  const volRegime = state?.volatility_regime ?? market.vol_regime ?? "NORMAL";
-
-  const htfRegime = hmm;
-  const htfDirection = direction;
-
-  const tfData: Record<Timeframe, Partial<TimeframeRegime>> = {
-    "1D": {
-      regime: htfRegime,
-      trend_strength: strength,
-      direction: htfDirection,
-      volatility_regime: volRegime,
-      adx: adx,
-      confidence: confidence,
-      trend_probability: trendProb,
-      mean_revert_probability: meanRevProb,
-      crisis_probability: crisisProb,
-    },
-    "4H": {
-      regime: htfRegime,
-      trend_strength: strength,
-      direction: htfDirection,
-      volatility_regime: volRegime,
-      adx: adx * 0.92,
-      confidence: confidence * 0.95,
-      trend_probability: trendProb * 0.93,
-      mean_revert_probability: meanRevProb * 1.05,
-      crisis_probability: crisisProb * 0.9,
-    },
-    "1H": {
-      regime: adx > 25 ? htfRegime : "MEAN_REVERT",
-      trend_strength: adx > 30 ? strength : "WEAK",
-      direction: htfDirection,
-      volatility_regime: volRegime,
-      adx: adx * 0.8,
-      confidence: confidence * 0.88,
-      trend_probability: trendProb * 0.82,
-      mean_revert_probability: meanRevProb * 1.15,
-      crisis_probability: crisisProb * 0.85,
-    },
-    "15m": {
-      regime: adx > 30 ? htfRegime : "MEAN_REVERT",
-      trend_strength: "WEAK",
-      direction: adx > 25 ? htfDirection : "NEUTRAL",
-      volatility_regime: "NORMAL",
-      adx: adx * 0.65,
-      confidence: confidence * 0.75,
-      trend_probability: trendProb * 0.7,
-      mean_revert_probability: meanRevProb * 1.3,
-      crisis_probability: crisisProb * 0.7,
-    },
-    "5m": {
-      regime: "MEAN_REVERT",
-      trend_strength: "CHOPPY",
-      direction: Math.random() > 0.5 ? "BULLISH" : "BEARISH",
-      volatility_regime: "NORMAL",
-      adx: adx * 0.5,
-      confidence: confidence * 0.6,
-      trend_probability: 0.3,
-      mean_revert_probability: 0.55,
-      crisis_probability: crisisProb * 0.5,
-    },
-    "1m": {
-      regime: "MEAN_REVERT",
-      trend_strength: "CHOPPY",
-      direction: Math.random() > 0.5 ? "BULLISH" : "BEARISH",
-      volatility_regime: "NORMAL",
-      adx: adx * 0.35,
-      confidence: confidence * 0.45,
-      trend_probability: 0.2,
-      mean_revert_probability: 0.65,
-      crisis_probability: crisisProb * 0.3,
-    },
-  };
-
-  return TIMEFRAMES.map((tf) => ({
+  return {
     timeframe: tf,
-    regime: tfData[tf].regime ?? "UNKNOWN",
-    trend_strength: tfData[tf].trend_strength ?? "WEAK",
-    direction: tfData[tf].direction ?? "NEUTRAL",
-    volatility_regime: tfData[tf].volatility_regime ?? "NORMAL",
-    adx: tfData[tf].adx ?? 15,
-    confidence: Math.min(1, Math.max(0, tfData[tf].confidence ?? 0.5)),
-    trend_probability: Math.min(1, Math.max(0, tfData[tf].trend_probability ?? 0.3)),
-    mean_revert_probability: Math.min(1, Math.max(0, tfData[tf].mean_revert_probability ?? 0.4)),
-    crisis_probability: Math.min(1, Math.max(0, tfData[tf].crisis_probability ?? 0.1)),
-  }));
+    regime: market.hmm_regime ?? "UNKNOWN",
+    trend_strength: state?.trend_strength ?? "WEAK",
+    direction: state?.direction ?? "NEUTRAL",
+    volatility_regime:
+      state?.volatility_regime ?? market.vol_regime ?? "NORMAL",
+    adx: state?.adx ?? 0,
+    confidence: Math.min(1, Math.max(0, state?.confidence ?? 0.5)),
+    trend_probability: probNorm(market.trend_probability),
+    mean_revert_probability: probNorm(market.mean_revert_probability),
+    crisis_probability: probNorm(market.crisis_probability),
+  };
+}
+
+function placeholderRegime(tf: Timeframe): TimeframeRegime {
+  return {
+    timeframe: tf,
+    regime: "LOADING",
+    trend_strength: "--",
+    direction: "NEUTRAL",
+    volatility_regime: "NORMAL",
+    adx: 0,
+    confidence: 0,
+    trend_probability: 0,
+    mean_revert_probability: 0,
+    crisis_probability: 0,
+  };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -120,13 +60,23 @@ function deriveTimeframeRegimes(market: MarketPayload): TimeframeRegime[] {
 // ─────────────────────────────────────────────────────────────────────────────
 
 function computeAlignment(regimes: TimeframeRegime[]): MTFAlignment {
-  if (regimes.length === 0) {
-    return { state: "CONFLICT", aligned_count: 0, total: 0, htf_bias: "--", ltf_bias: "--", macro_micro_divergence: false, htf_conflict_penalty: 0, details: [] };
+  const loaded = regimes.filter((r) => r.regime !== "LOADING");
+  if (loaded.length === 0) {
+    return {
+      state: "CONFLICT",
+      aligned_count: 0,
+      total: 0,
+      htf_bias: "--",
+      ltf_bias: "--",
+      macro_micro_divergence: false,
+      htf_conflict_penalty: 0,
+      details: [],
+    };
   }
 
-  const htf = regimes.filter((r) => TF_HIERARCHY[r.timeframe] >= 4);
-  const ltf = regimes.filter((r) => TF_HIERARCHY[r.timeframe] <= 1);
-  const all = regimes;
+  const htf = loaded.filter((r) => TF_HIERARCHY[r.timeframe] >= 4);
+  const ltf = loaded.filter((r) => TF_HIERARCHY[r.timeframe] <= 1);
+  const all = loaded;
 
   const htfDir = htf.length > 0 ? htf[0].direction : "NEUTRAL";
   const ltfDir = ltf.length > 0 ? ltf[ltf.length - 1].direction : "NEUTRAL";
@@ -136,7 +86,8 @@ function computeAlignment(regimes: TimeframeRegime[]): MTFAlignment {
   const ltfBullish = ltfDir.toUpperCase().includes("BULL");
   const ltfBearish = ltfDir.toUpperCase().includes("BEAR");
 
-  const macroMicroDiv = (htfBullish && ltfBearish) || (htfBearish && ltfBullish);
+  const macroMicroDiv =
+    (htfBullish && ltfBearish) || (htfBearish && ltfBullish);
 
   const dominantDir = htfDir;
   let alignedCount = 0;
@@ -156,7 +107,9 @@ function computeAlignment(regimes: TimeframeRegime[]): MTFAlignment {
   let penalty = 0;
 
   if (macroMicroDiv) {
-    details.push(`HTF ${htfDir} vs LTF ${ltfDir} — MACRO/MICRO DIVERGENCE`);
+    details.push(
+      `HTF ${htfDir} vs LTF ${ltfDir} — MACRO/MICRO DIVERGENCE`,
+    );
     penalty += 0.3;
   }
 
@@ -172,7 +125,10 @@ function computeAlignment(regimes: TimeframeRegime[]): MTFAlignment {
   }
 
   const htfVol = htf[0]?.volatility_regime ?? "";
-  if (htfVol.includes("COMPRESS") && (ltf.some((r) => r.volatility_regime.includes("EXPAND")))) {
+  if (
+    htfVol.includes("COMPRESS") &&
+    ltf.some((r) => r.volatility_regime.includes("EXPAND"))
+  ) {
     details.push("VOL COMPRESSION HTF + EXPANSION LTF — BREAKOUT SETUP");
   }
 
@@ -201,34 +157,59 @@ function computeAlignment(regimes: TimeframeRegime[]): MTFAlignment {
 function computeHistoricalContext(chartData: ChartBar[]): HistoricalContext {
   if (!chartData.length) {
     return {
-      current_regime: "UNKNOWN", similar_regime_count: 0,
-      historical_win_rate: 0, historical_avg_return: 0,
-      historical_avg_vol_after: 0, historical_max_drawdown: 0,
-      regime_stats: [], regime_history: [],
+      current_regime: "UNKNOWN",
+      similar_regime_count: 0,
+      historical_win_rate: 0,
+      historical_avg_return: 0,
+      historical_avg_vol_after: 0,
+      historical_max_drawdown: 0,
+      regime_stats: [],
+      regime_history: [],
     };
   }
 
-  const currentRegime = chartData[chartData.length - 1]?.hmm_regime ?? "UNKNOWN";
+  const currentRegime =
+    chartData[chartData.length - 1]?.hmm_regime ?? "UNKNOWN";
 
-  const regimeBuckets: Record<string, { returns: number[]; durations: number[]; vols: number[] }> = {};
-  let currentRun = { regime: chartData[0]?.hmm_regime ?? "UNKNOWN", start: 0, bars: 0 };
-  const history: Array<{ time: string; regime: string; duration: number }> = [];
+  const regimeBuckets: Record<
+    string,
+    { returns: number[]; durations: number[]; vols: number[] }
+  > = {};
+  let currentRun = {
+    regime: chartData[0]?.hmm_regime ?? "UNKNOWN",
+    start: 0,
+    bars: 0,
+  };
+  const history: Array<{
+    time: string;
+    regime: string;
+    duration: number;
+  }> = [];
 
   for (let i = 0; i < chartData.length; i++) {
     const bar = chartData[i];
     const regime = bar.hmm_regime ?? "UNKNOWN";
 
     if (regime !== currentRun.regime) {
-      history.push({ time: chartData[currentRun.start]?.time ?? "", regime: currentRun.regime, duration: currentRun.bars });
+      const timeVal = chartData[currentRun.start]?.time;
+      history.push({
+        time: typeof timeVal === "number" ? new Date(timeVal * 1000).toISOString() : (timeVal ?? ""),
+        regime: currentRun.regime,
+        duration: currentRun.bars,
+      });
 
       if (!regimeBuckets[currentRun.regime]) {
-        regimeBuckets[currentRun.regime] = { returns: [], durations: [], vols: [] };
+        regimeBuckets[currentRun.regime] = {
+          returns: [],
+          durations: [],
+          vols: [],
+        };
       }
       const endBar = chartData[Math.min(i, chartData.length - 1)];
       const startBar = chartData[currentRun.start];
       if (startBar && endBar && startBar.close > 0) {
         regimeBuckets[currentRun.regime].returns.push(
-          ((endBar.close - startBar.close) / startBar.close) * 100
+          ((endBar.close - startBar.close) / startBar.close) * 100,
         );
       }
       regimeBuckets[currentRun.regime].durations.push(currentRun.bars);
@@ -241,16 +222,32 @@ function computeHistoricalContext(chartData: ChartBar[]): HistoricalContext {
       currentRun.bars++;
     }
   }
-  history.push({ time: chartData[currentRun.start]?.time ?? "", regime: currentRun.regime, duration: currentRun.bars });
+  const lastTimeVal = chartData[currentRun.start]?.time;
+  history.push({
+    time: typeof lastTimeVal === "number" ? new Date(lastTimeVal * 1000).toISOString() : (lastTimeVal ?? ""),
+    regime: currentRun.regime,
+    duration: currentRun.bars,
+  });
 
-  const regimeStats: HistoricalRegimeStats[] = Object.entries(regimeBuckets).map(([regime, data]) => {
-    const avgReturn = data.returns.length > 0 ? data.returns.reduce((a, b) => a + b, 0) / data.returns.length : 0;
+  const regimeStats: HistoricalRegimeStats[] = Object.entries(
+    regimeBuckets,
+  ).map(([regime, data]) => {
+    const avgReturn =
+      data.returns.length > 0
+        ? data.returns.reduce((a, b) => a + b, 0) / data.returns.length
+        : 0;
     const wins = data.returns.filter((r) => r > 0).length;
-    const avgDuration = data.durations.length > 0 ? data.durations.reduce((a, b) => a + b, 0) / data.durations.length : 0;
-    const avgVol = data.vols.length > 0 ? data.vols.reduce((a, b) => a + b, 0) / data.vols.length : 0;
-    const avgDd = data.returns.length > 0 ? Math.min(...data.returns, 0) : 0;
+    const avgDuration =
+      data.durations.length > 0
+        ? data.durations.reduce((a, b) => a + b, 0) / data.durations.length
+        : 0;
+    const avgVol =
+      data.vols.length > 0
+        ? data.vols.reduce((a, b) => a + b, 0) / data.vols.length
+        : 0;
+    const avgDd =
+      data.returns.length > 0 ? Math.min(...data.returns, 0) : 0;
 
-    const transitionsFrom = history.filter((h) => h.regime === regime);
     const nextRegimes: Record<string, number> = {};
     for (let i = 0; i < history.length - 1; i++) {
       if (history[i].regime === regime) {
@@ -258,17 +255,22 @@ function computeHistoricalContext(chartData: ChartBar[]): HistoricalContext {
         nextRegimes[next] = (nextRegimes[next] ?? 0) + 1;
       }
     }
-    const totalTrans = Object.values(nextRegimes).reduce((a, b) => a + b, 0) || 1;
+    const totalTrans =
+      Object.values(nextRegimes).reduce((a, b) => a + b, 0) || 1;
 
     return {
       regime,
       occurrences: data.returns.length,
       avg_duration_bars: avgDuration,
       avg_return_pct: avgReturn,
-      win_rate: data.returns.length > 0 ? (wins / data.returns.length) * 100 : 0,
+      win_rate:
+        data.returns.length > 0 ? (wins / data.returns.length) * 100 : 0,
       avg_volatility_after: avgVol,
       avg_drawdown: avgDd,
-      transition_to: Object.entries(nextRegimes).map(([r, c]) => ({ regime: r, probability: c / totalTrans })),
+      transition_to: Object.entries(nextRegimes).map(([r, c]) => ({
+        regime: r,
+        probability: c / totalTrans,
+      })),
     };
   });
 
@@ -292,35 +294,117 @@ function computeHistoricalContext(chartData: ChartBar[]): HistoricalContext {
 
 interface TimeframeStore {
   activeTimeframe: Timeframe;
+  timeframeCache: Partial<Record<Timeframe, MarketPayload>>;
+  loadingTimeframes: Timeframe[];
   regimes: TimeframeRegime[];
   alignment: MTFAlignment;
   historicalContext: HistoricalContext;
 
   setActiveTimeframe: (tf: Timeframe) => void;
+  fetchTimeframe: (tf: Timeframe) => Promise<void>;
+  setTimeframeData: (tf: Timeframe, data: MarketPayload) => void;
+  initializeAllTimeframes: () => void;
   updateFromMarket: (market: MarketPayload) => void;
 }
 
-export const useTimeframeStore = create<TimeframeStore>((set) => ({
+const EMPTY_ALIGNMENT: MTFAlignment = {
+  state: "CONFLICT",
+  aligned_count: 0,
+  total: 0,
+  htf_bias: "--",
+  ltf_bias: "--",
+  macro_micro_divergence: false,
+  htf_conflict_penalty: 0,
+  details: [],
+};
+
+const EMPTY_CONTEXT: HistoricalContext = {
+  current_regime: "UNKNOWN",
+  similar_regime_count: 0,
+  historical_win_rate: 0,
+  historical_avg_return: 0,
+  historical_avg_vol_after: 0,
+  historical_max_drawdown: 0,
+  regime_stats: [],
+  regime_history: [],
+};
+
+export const useTimeframeStore = create<TimeframeStore>((set, get) => ({
   activeTimeframe: "1D",
-  regimes: [],
-  alignment: {
-    state: "CONFLICT", aligned_count: 0, total: 0,
-    htf_bias: "--", ltf_bias: "--",
-    macro_micro_divergence: false, htf_conflict_penalty: 0, details: [],
-  },
-  historicalContext: {
-    current_regime: "UNKNOWN", similar_regime_count: 0,
-    historical_win_rate: 0, historical_avg_return: 0,
-    historical_avg_vol_after: 0, historical_max_drawdown: 0,
-    regime_stats: [], regime_history: [],
+  timeframeCache: {},
+  loadingTimeframes: [],
+  regimes: TIMEFRAMES.map(placeholderRegime),
+  alignment: EMPTY_ALIGNMENT,
+  historicalContext: EMPTY_CONTEXT,
+
+  setActiveTimeframe: (tf) => {
+    set({ activeTimeframe: tf });
+    const cached = get().timeframeCache[tf];
+    if (cached) {
+      useMarketStore.getState().setMarket(cached);
+      set({ historicalContext: computeHistoricalContext(cached.chart_data) });
+    } else {
+      get().fetchTimeframe(tf);
+    }
   },
 
-  setActiveTimeframe: (tf) => set({ activeTimeframe: tf }),
+  fetchTimeframe: async (tf) => {
+    const { loadingTimeframes } = get();
+    if (loadingTimeframes.includes(tf)) return;
+
+    set({ loadingTimeframes: [...loadingTimeframes, tf] });
+
+    try {
+      const res = await fetch(
+        `http://127.0.0.1:8000/market/timeframe/${tf}`,
+      );
+      if (!res.ok) throw new Error(`API returned ${res.status}`);
+      const data: MarketPayload = await res.json();
+
+      get().setTimeframeData(tf, data);
+
+      if (get().activeTimeframe === tf) {
+        useMarketStore.getState().setMarket(data);
+        set({
+          historicalContext: computeHistoricalContext(data.chart_data),
+        });
+      }
+    } catch (err) {
+      console.error(`[MTF] Failed to fetch ${tf}:`, err);
+    } finally {
+      set((s) => ({
+        loadingTimeframes: s.loadingTimeframes.filter((t) => t !== tf),
+      }));
+    }
+  },
+
+  setTimeframeData: (tf, data) => {
+    const cache = { ...get().timeframeCache, [tf]: data };
+
+    const regimes = TIMEFRAMES.map((t) => {
+      const cached = cache[t];
+      if (cached) return extractRegimeFromPayload(t, cached);
+      return placeholderRegime(t);
+    });
+
+    const alignment = computeAlignment(regimes);
+    const isActiveTF = tf === get().activeTimeframe;
+
+    set({
+      timeframeCache: cache,
+      regimes,
+      alignment,
+      ...(isActiveTF
+        ? { historicalContext: computeHistoricalContext(data.chart_data) }
+        : {}),
+    });
+  },
+
+  initializeAllTimeframes: () => {
+    TIMEFRAMES.forEach((tf) => get().fetchTimeframe(tf));
+  },
 
   updateFromMarket: (market) => {
-    const regimes = deriveTimeframeRegimes(market);
-    const alignment = computeAlignment(regimes);
-    const historicalContext = computeHistoricalContext(market.chart_data);
-    set({ regimes, alignment, historicalContext });
+    get().setTimeframeData("1D", market);
   },
 }));

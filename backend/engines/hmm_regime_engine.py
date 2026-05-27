@@ -152,6 +152,67 @@ class HMMRegimeEngine:
 
         return pd.DataFrame.from_dict(records, orient="index")
 
+    def compute_single_fit_regimes(
+        self,
+        df: pd.DataFrame,
+    ) -> pd.DataFrame:
+        """
+        Single-fit HMM: fit model once on all available data, predict
+        states and posteriors for every bar.  Much faster than expanding-
+        window — intended for chart display across all timeframes.
+        """
+        features = build_hmm_features(df)
+        n = len(features)
+
+        columns = [
+            "regime_state",
+            "hmm_regime",
+            "mean_revert_probability",
+            "trend_probability",
+            "crisis_probability",
+        ]
+
+        if n < self.min_train:
+            return pd.DataFrame(columns=columns)
+
+        scaler = StandardScaler()
+        scaled = scaler.fit_transform(features)
+
+        model = GaussianHMM(
+            n_components=3,
+            covariance_type="full",
+            n_iter=200,
+            random_state=42,
+        )
+        model.fit(scaled)
+
+        hidden_states = model.predict(scaled)
+        probabilities = model.predict_proba(scaled)
+
+        mr_s, tr_s, cr_s = _map_states_by_volatility(features, hidden_states)
+
+        records: Dict = {}
+        for i in range(n):
+            ts = features.index[i]
+            state = int(hidden_states[i])
+            probs = probabilities[i]
+            label = _regime_label_for_state(state, mr_s, tr_s, cr_s)
+            records[ts] = {
+                "regime_state": state,
+                "hmm_regime": label,
+                "mean_revert_probability": round(
+                    float(probs[mr_s] * 100), 4
+                ),
+                "trend_probability": round(
+                    float(probs[tr_s] * 100), 4
+                ),
+                "crisis_probability": round(
+                    float(probs[cr_s] * 100), 4
+                ),
+            }
+
+        return pd.DataFrame.from_dict(records, orient="index")
+
     @staticmethod
     def snapshot_from_history(history: pd.DataFrame) -> Dict:
         """Latest-bar API payload from an existing historical series."""

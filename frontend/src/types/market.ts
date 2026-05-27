@@ -18,7 +18,7 @@ export interface MarketState {
 }
 
 export interface ChartBar {
-  time: string;
+  time: string | number;
   open: number;
   high: number;
   low: number;
@@ -31,6 +31,7 @@ export interface ChartBar {
   hmm_regime?: string;
   trend_probability?: number;
   crisis_probability?: number;
+  mean_revert_probability?: number;
   garch_vol?: number;
   vol_regime?: string;
 }
@@ -67,6 +68,7 @@ export interface CorrelationPayload {
 
 export interface MarketPayload {
   symbol?: string;
+  timeframe?: string;
   price?: number;
   trend?: string;
   volatility?: number;
@@ -90,6 +92,7 @@ export interface MarketPayload {
   max_drawdown?: number;
   risk_regime?: string;
   correlation?: CorrelationPayload;
+  structure_regime?: string;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

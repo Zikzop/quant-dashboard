@@ -6,7 +6,9 @@ import { useEffect } from "react";
 import TopBar from "../src/components/quant/TopBar";
 import WorkspaceNav from "../src/components/workspace/WorkspaceNav";
 import MarketIntelligenceStrip from "@/visualization/intelligence/MarketIntelligenceStrip";
+import TimeframeSelector from "@/components/mtf/TimeframeSelector";
 import { useMarketStore } from "@/state/stores/useMarketStore";
+import { useTimeframeStore } from "@/state/stores/useTimeframeStore";
 
 const MainChart = dynamic(() => import("../src/components/quant/MainChart"), {
   ssr: false,
@@ -24,6 +26,8 @@ const AlphaDiagnostics = dynamic(() => import("../src/components/workspace/Alpha
 const PortfolioAnalytics = dynamic(() => import("../src/components/workspace/PortfolioAnalytics"), { ssr: false });
 const LiveTerminal = dynamic(() => import("../src/components/workspace/LiveTerminal"), { ssr: false });
 
+import MTFRegimeMatrix from "@/components/mtf/MTFRegimeMatrix";
+import HistoricalRegimePanel from "@/components/mtf/HistoricalRegimePanel";
 import ProbabilityPanel from "../src/components/quant/ProbabilityPanel";
 import RiskPanel from "../src/components/quant/RiskPanel";
 import RegimePanel from "../src/components/quant/RegimePanel";
@@ -39,6 +43,7 @@ export default function Home() {
   const setMarket = useMarketStore((s) => s.setMarket);
   const setError = useMarketStore((s) => s.setError);
   const activeWorkspace = useMarketStore((s) => s.activeWorkspace);
+  const updateMTF = useTimeframeStore((s) => s.updateFromMarket);
 
   useEffect(() => {
     let cancelled = false;
@@ -49,14 +54,17 @@ export default function Home() {
         return res.json();
       })
       .then((data) => {
-        if (!cancelled) setMarket(data);
+        if (!cancelled) {
+          setMarket(data);
+          updateMTF(data);
+        }
       })
       .catch((err: unknown) => {
         if (!cancelled) setError(err instanceof Error ? err.message : "Failed to load market data");
       });
 
     return () => { cancelled = true; };
-  }, [setMarket, setError]);
+  }, [setMarket, setError, updateMTF]);
 
   if (error) {
     return (
@@ -108,6 +116,7 @@ export default function Home() {
 function ChartWorkspace({ market }: { market: any }) {
   return (
     <div className="h-full overflow-auto" style={{ background: "#0a0a0c" }}>
+      <TimeframeSelector />
       <div className="grid grid-cols-12 gap-px" style={{ background: "#1c1c20" }}>
         <div className="col-span-12 xl:col-span-9" style={{ background: "#080809" }}>
           <MainChart market={market} />
@@ -127,6 +136,12 @@ function ChartWorkspace({ market }: { market: any }) {
           </div>
         </div>
         <div className="col-span-12 xl:col-span-3 flex flex-col gap-px" style={{ background: "#1c1c20" }}>
+          <div style={{ background: "#080809" }}>
+            <MTFRegimeMatrix />
+          </div>
+          <div style={{ background: "#080809" }}>
+            <HistoricalRegimePanel />
+          </div>
           <div style={{ background: "#080809" }}>
             <ProbabilityPanel market={market} />
           </div>

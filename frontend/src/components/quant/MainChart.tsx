@@ -15,6 +15,8 @@ import { fmt, fmtPct, probFraction, finiteNum } from "@/lib/format";
 import { useRiskStore } from "@/state/stores/useRiskStore";
 import { useAlphaStore } from "@/state/stores/useAlphaStore";
 import { useExecutionStore } from "@/state/stores/useExecutionStore";
+import { useTimeframeStore } from "@/state/stores/useTimeframeStore";
+import MTFAlignmentOverlay from "@/components/mtf/MTFAlignmentOverlay";
 import type { MarketPayload, EntryQuality } from "@/types/market";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -25,7 +27,8 @@ function computeEntryQuality(
   market: MarketPayload,
   riskState: { drawdownPct: number; propProximity: number; leverage: number },
   alphaState: { sharpe: number; winrate7d: number; signalStability: number },
-  execState: { avgSlippage: number; latency: number }
+  execState: { avgSlippage: number; latency: number },
+  htfPenalty = 0
 ): EntryQuality {
   const state = market.market_state;
   const warnings: string[] = [];
@@ -73,7 +76,7 @@ function computeEntryQuality(
     return 0.2;
   })();
 
-  const entryScore = (
+  const rawScore = (
     regimeAlignment * 0.25 +
     volSuitability * 0.2 +
     trendStrength * 0.15 +
@@ -82,6 +85,8 @@ function computeEntryQuality(
     executionConditions * 0.1 +
     rrQuality * 0.15
   );
+  const entryScore = Math.max(0, rawScore * (1 - htfPenalty));
+  if (htfPenalty > 0.15) warnings.push(`HTF CONFLICT (-${(htfPenalty * 100).toFixed(0)}%)`);
 
   const confidenceScore = (state?.confidence ?? 0.5) * (alphaState.signalStability);
   const regimeConfidence = state?.confidence ?? 0.5;
@@ -94,6 +99,7 @@ function computeEntryQuality(
     signalsSuppressed = true;
     suppressionReasons.push("CRISIS PROBABILITY >40%");
   }
+  if (htfPenalty > 0.3) { signalsSuppressed = true; suppressionReasons.push("STRONG HTF CONFLICT"); }
 
   const qualityRating: EntryQuality["quality_rating"] =
     signalsSuppressed ? "AVOID" :
@@ -482,13 +488,15 @@ export default function MainChart({ market }: { market: MarketPayload }) {
   const alpha = useAlphaStore((s) => s.alpha);
   const slip = useExecutionStore((s) => s.slippage);
   const lat = useExecutionStore((s) => s.latency);
+  const htfPenalty = useTimeframeStore((s) => s.alignment.htf_conflict_penalty);
 
   const entryQuality = useMemo(() => computeEntryQuality(
     market,
     { drawdownPct: Math.abs(dd.daily_drawdown), propProximity: Math.max(pf.daily_proximity_pct, pf.max_proximity_pct), leverage: risk.leverage },
     { sharpe: alpha.rolling_sharpe, winrate7d: alpha.winrate_7d, signalStability: alpha.signal_stability },
     { avgSlippage: slip.avg_slippage_bps, latency: lat.p99_latency_ms },
-  ), [market, dd, pf, risk, alpha, slip, lat]);
+    htfPenalty,
+  ), [market, dd, pf, risk, alpha, slip, lat, htfPenalty]);
 
   useEffect(() => {
     if (!containerRef.current || !market?.chart_data?.length) return;
@@ -640,7 +648,7 @@ export default function MainChart({ market }: { market: MarketPayload }) {
             PERPETUAL
           </span>
           <div className="h-3 w-px" style={{ background: C.border }} />
-          <span style={{ fontSize: 9, color: C.t3, letterSpacing: "0.06em" }}>INSTITUTIONAL DECISION ENGINE</span>
+          <span style={{ fontSize: 9, color: C.t3, letterSpacing: "0.06em" }}>MULTI-TIMEFRAME DECISION ENGINE</span>
         </div>
         <div className="flex items-center gap-4">
           <LegendPill color={C.ema20} label="EMA 20" />
@@ -658,6 +666,7 @@ export default function MainChart({ market }: { market: MarketPayload }) {
         <RegimeIntelligenceOverlay market={market} />
         <EntryQualityOverlay quality={entryQuality} />
         <VolatilityStateOverlay market={market} />
+        <MTFAlignmentOverlay />
         <ExecutionQualityOverlay />
         <AlphaHealthOverlay />
         <ChartLegendBar />

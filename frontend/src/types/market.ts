@@ -280,6 +280,78 @@ export interface EntryQuality {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// MULTI-TIMEFRAME TYPES
+// ─────────────────────────────────────────────────────────────────────────────
+
+export type Timeframe = "1m" | "5m" | "15m" | "1H" | "4H" | "1D";
+
+export const TIMEFRAMES: Timeframe[] = ["1m", "5m", "15m", "1H", "4H", "1D"];
+
+export const TF_HIERARCHY: Record<Timeframe, number> = {
+  "1m": 0, "5m": 1, "15m": 2, "1H": 3, "4H": 4, "1D": 5,
+};
+
+export const TF_LABELS: Record<Timeframe, string> = {
+  "1m": "1 MIN", "5m": "5 MIN", "15m": "15 MIN",
+  "1H": "1 HOUR", "4H": "4 HOUR", "1D": "DAILY",
+};
+
+export type TFRole = "EXECUTION" | "TACTICAL" | "STRATEGIC";
+
+export const TF_ROLE: Record<Timeframe, TFRole> = {
+  "1m": "EXECUTION", "5m": "EXECUTION", "15m": "TACTICAL",
+  "1H": "TACTICAL", "4H": "STRATEGIC", "1D": "STRATEGIC",
+};
+
+export interface TimeframeRegime {
+  timeframe: Timeframe;
+  regime: string;
+  trend_strength: string;
+  direction: string;
+  volatility_regime: string;
+  adx: number;
+  confidence: number;
+  trend_probability: number;
+  mean_revert_probability: number;
+  crisis_probability: number;
+}
+
+export type AlignmentState = "ALIGNED" | "PARTIAL" | "CONFLICT";
+
+export interface MTFAlignment {
+  state: AlignmentState;
+  aligned_count: number;
+  total: number;
+  htf_bias: string;
+  ltf_bias: string;
+  macro_micro_divergence: boolean;
+  htf_conflict_penalty: number;
+  details: string[];
+}
+
+export interface HistoricalRegimeStats {
+  regime: string;
+  occurrences: number;
+  avg_duration_bars: number;
+  avg_return_pct: number;
+  win_rate: number;
+  avg_volatility_after: number;
+  avg_drawdown: number;
+  transition_to: Array<{ regime: string; probability: number }>;
+}
+
+export interface HistoricalContext {
+  current_regime: string;
+  similar_regime_count: number;
+  historical_win_rate: number;
+  historical_avg_return: number;
+  historical_avg_vol_after: number;
+  historical_max_drawdown: number;
+  regime_stats: HistoricalRegimeStats[];
+  regime_history: Array<{ time: string; regime: string; duration: number }>;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // WORKSPACE TYPE
 // ─────────────────────────────────────────────────────────────────────────────
 

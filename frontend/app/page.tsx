@@ -1,156 +1,143 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 
 import TopBar from "../src/components/quant/TopBar";
+import WorkspaceNav from "../src/components/workspace/WorkspaceNav";
+import MarketIntelligenceStrip from "@/visualization/intelligence/MarketIntelligenceStrip";
+import { useMarketStore } from "@/state/stores/useMarketStore";
 
-const MainChart = dynamic(
-  () => import("../src/components/quant/MainChart"),
-  {
-    ssr: false,
-    loading: () => (
-      <div className="h-[680px] w-full bg-black flex items-center justify-center text-zinc-500 text-sm">
-        Loading chart...
-      </div>
-    ),
-  }
-);
+const MainChart = dynamic(() => import("../src/components/quant/MainChart"), {
+  ssr: false,
+  loading: () => (
+    <div className="h-full w-full flex items-center justify-center" style={{ background: "#080809", color: "#555560", fontSize: 11, letterSpacing: "0.1em" }}>
+      LOADING CHART ENGINE...
+    </div>
+  ),
+});
+
+const RiskCommandCenter = dynamic(() => import("../src/components/workspace/RiskCommandCenter"), { ssr: false });
+const MarketOverview = dynamic(() => import("../src/components/workspace/MarketOverview"), { ssr: false });
+const ExecutionMonitor = dynamic(() => import("../src/components/workspace/ExecutionMonitor"), { ssr: false });
+const AlphaDiagnostics = dynamic(() => import("../src/components/workspace/AlphaDiagnostics"), { ssr: false });
+const PortfolioAnalytics = dynamic(() => import("../src/components/workspace/PortfolioAnalytics"), { ssr: false });
+const LiveTerminal = dynamic(() => import("../src/components/workspace/LiveTerminal"), { ssr: false });
+
 import ProbabilityPanel from "../src/components/quant/ProbabilityPanel";
 import RiskPanel from "../src/components/quant/RiskPanel";
 import RegimePanel from "../src/components/quant/RegimePanel";
-import MarketFeed from "../src/components/quant/MarketFeed";
-
+import RegimeTimeline from "../src/components/quant/RegimeTimeline";
 import VolatilityPanel from "../src/components/quant/VolatilityPanel";
 import StructurePanel from "../src/components/quant/StructurePanel";
 import HeatmapPanel from "../src/components/quant/HeatmapPanel";
-import RegimeTimeline from "../src/components/quant/RegimeTimeline";
-
-import MarketIntelligenceStrip from "@/visualization/intelligence/MarketIntelligenceStrip";
-
-
 
 export default function Home() {
-
-  const [market, setMarket] = useState<any>(null);
-  const [error, setError] = useState<string | null>(null);
+  const market = useMarketStore((s) => s.market);
+  const loading = useMarketStore((s) => s.loading);
+  const error = useMarketStore((s) => s.error);
+  const setMarket = useMarketStore((s) => s.setMarket);
+  const setError = useMarketStore((s) => s.setError);
+  const activeWorkspace = useMarketStore((s) => s.activeWorkspace);
 
   useEffect(() => {
     let cancelled = false;
 
     fetch("http://127.0.0.1:8000/market")
       .then((res) => {
-        if (!res.ok) {
-          throw new Error(`Market API returned ${res.status}`);
-        }
+        if (!res.ok) throw new Error(`Market API returned ${res.status}`);
         return res.json();
       })
       .then((data) => {
-        if (!cancelled) {
-          setMarket(data);
-          setError(null);
-        }
+        if (!cancelled) setMarket(data);
       })
       .catch((err: unknown) => {
-        if (!cancelled) {
-          setError(
-            err instanceof Error ? err.message : "Failed to load market data"
-          );
-        }
+        if (!cancelled) setError(err instanceof Error ? err.message : "Failed to load market data");
       });
 
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+    return () => { cancelled = true; };
+  }, [setMarket, setError]);
 
   if (error) {
     return (
-      <main className="min-h-screen bg-black text-white flex items-center justify-center p-8">
+      <main className="h-screen flex items-center justify-center" style={{ background: "#080809" }}>
         <div className="text-center max-w-lg">
-          <h1 className="text-2xl font-bold text-red-400 mb-3">
-            Market data unavailable
+          <h1 style={{ fontSize: 14, fontWeight: 700, color: "#ef4444", letterSpacing: "0.1em", marginBottom: 8 }}>
+            MARKET DATA UNAVAILABLE
           </h1>
-          <p className="text-zinc-400 text-sm">{error}</p>
+          <p style={{ fontSize: 11, color: "#555560" }}>{error}</p>
         </div>
       </main>
     );
   }
 
-  if (!market) {
+  if (loading || !market) {
     return (
-      <main className="min-h-screen bg-black text-white flex items-center justify-center">
-        <h1 className="text-4xl font-bold text-green-400 animate-pulse">
-          Loading Quant Terminal...
-        </h1>
+      <main className="h-screen flex items-center justify-center" style={{ background: "#080809" }}>
+        <div className="text-center">
+          <div style={{ fontSize: 13, fontWeight: 700, color: "#22c55e", letterSpacing: "0.15em" }} className="animate-pulse">
+            INITIALIZING QUANT TERMINAL
+          </div>
+          <div style={{ fontSize: 9, color: "#555560", marginTop: 4, letterSpacing: "0.1em" }}>
+            CONNECTING TO MARKET DATA...
+          </div>
+        </div>
       </main>
     );
   }
-
-  // =========================
-  // UI
-  // =========================
 
   return (
+    <div className="h-screen flex flex-col overflow-hidden" style={{ background: "#080809" }}>
+      <TopBar market={market} />
+      <MarketIntelligenceStrip market={market} />
+      <WorkspaceNav />
 
-    <div className="space-y-4">
+      <div className="flex-1 overflow-hidden">
+        {activeWorkspace === "chart" && <ChartWorkspace market={market} />}
+        {activeWorkspace === "risk" && <RiskCommandCenter />}
+        {activeWorkspace === "market" && <MarketOverview />}
+        {activeWorkspace === "execution" && <ExecutionMonitor />}
+        {activeWorkspace === "alpha" && <AlphaDiagnostics />}
+        {activeWorkspace === "portfolio" && <PortfolioAnalytics />}
+        {activeWorkspace === "terminal" && <LiveTerminal />}
+      </div>
+    </div>
+  );
+}
 
-      <main className="min-h-screen bg-black text-white flex flex-col">
-
-        <TopBar market={market} />
-
-        <div className="sticky top-0 z-50">
-
-          <MarketIntelligenceStrip
-            market={market}
-          />
-
-        </div>
-
-        <div className="grid grid-cols-12 gap-4 p-4">
-
-          {/* MAIN AREA */}
-
-          <div className="col-span-12 xl:col-span-9 flex flex-col gap-4">
-
-            <MainChart market={market} />
-
-            <RegimeTimeline market={market} />
-
-            <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
-
-              <VolatilityPanel market={market} />
-
-              <StructurePanel market={market} />
-
+function ChartWorkspace({ market }: { market: any }) {
+  return (
+    <div className="h-full overflow-auto" style={{ background: "#0a0a0c" }}>
+      <div className="grid grid-cols-12 gap-px" style={{ background: "#1c1c20" }}>
+        <div className="col-span-12 xl:col-span-9" style={{ background: "#080809" }}>
+          <MainChart market={market} />
+          <div className="grid grid-cols-12 gap-px" style={{ background: "#1c1c20" }}>
+            <div className="col-span-12" style={{ background: "#080809" }}>
+              <RegimeTimeline market={market} />
             </div>
-
-            <HeatmapPanel market={market} />
-
+            <div className="col-span-6" style={{ background: "#080809" }}>
+              <VolatilityPanel market={market} />
+            </div>
+            <div className="col-span-6" style={{ background: "#080809" }}>
+              <StructurePanel market={market} />
+            </div>
+            <div className="col-span-12" style={{ background: "#080809" }}>
+              <HeatmapPanel market={market} />
+            </div>
           </div>
-
-          {/* RIGHT PANEL */}
-
-          <div className="col-span-12 xl:col-span-3 flex flex-col gap-4">
-
+        </div>
+        <div className="col-span-12 xl:col-span-3 flex flex-col gap-px" style={{ background: "#1c1c20" }}>
+          <div style={{ background: "#080809" }}>
             <ProbabilityPanel market={market} />
-
-            <RiskPanel market={market} />
-
-            <RegimePanel market={market} />
-
           </div>
-
+          <div style={{ background: "#080809" }}>
+            <RiskPanel market={market} />
+          </div>
+          <div style={{ background: "#080809" }}>
+            <RegimePanel market={market} />
+          </div>
         </div>
-
-        <div className="p-4">
-
-          <MarketFeed />
-
-        </div>
-
-      </main>
-
+      </div>
     </div>
   );
 }

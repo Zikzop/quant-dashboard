@@ -1,3 +1,7 @@
+"use client";
+
+import { C } from "@/lib/colors";
+import { Panel } from "@/components/ui/primitives";
 import CrossAssetHeatmap from "./CrossAssetHeatmap";
 
 export default function HeatmapPanel({
@@ -6,12 +10,10 @@ export default function HeatmapPanel({
   market: { correlation?: Record<string, unknown> };
 }) {
   return (
-    <div className="bg-zinc-950 border border-zinc-800 rounded-2xl p-5">
-      <h2 className="text-xl font-bold text-orange-400 mb-5">
-        Cross Asset Heatmap
-      </h2>
-
-      <CrossAssetHeatmap correlation={market?.correlation} />
-    </div>
+    <Panel label="CROSS-ASSET CORRELATION" accent={C.amber} noPad>
+      <div className="p-3">
+        <CrossAssetHeatmap correlation={market?.correlation as any} />
+      </div>
+    </Panel>
   );
 }

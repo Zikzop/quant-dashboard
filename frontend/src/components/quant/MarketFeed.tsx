@@ -1,57 +1,22 @@
-export default function MarketFeed() {
+"use client";
 
-    const news = [
-  
-      {
-        title:
-          "BTC volatility expansion detected",
-        impact: "HIGH",
-      },
-  
-      {
-        title:
-          "Macro liquidity tightening risk",
-        impact: "MEDIUM",
-      },
-  
-      {
-        title:
-          "Trend persistence weakening",
-        impact: "LOW",
-      },
-    ];
-  
-    return (
-  
-      <div className="bg-zinc-950 border border-zinc-800 rounded-2xl p-5">
-  
-        <h2 className="text-xl font-bold text-cyan-400 mb-5">
-          Market Intelligence Feed
-        </h2>
-  
-        <div className="space-y-4">
-  
-          {news.map((item, index) => (
-  
-            <div
-              key={index}
-              className="border-b border-zinc-800 pb-4"
-            >
-  
-              <p className="text-white font-medium">
-                {item.title}
-              </p>
-  
-              <p className="text-zinc-500 text-sm mt-1">
-                Impact: {item.impact}
-              </p>
-  
-            </div>
-  
-          ))}
-  
-        </div>
-  
+import { C } from "@/lib/colors";
+import { Panel, AlertStrip } from "@/components/ui/primitives";
+
+export default function MarketFeed() {
+  const alerts: Array<{ text: string; severity: "info" | "warning" | "danger" | "critical" }> = [
+    { text: "BTC volatility expansion detected — monitor spread regime", severity: "warning" },
+    { text: "Macro liquidity tightening risk — reduce exposure", severity: "danger" },
+    { text: "Trend persistence weakening — alpha quality review needed", severity: "info" },
+  ];
+
+  return (
+    <Panel label="MARKET INTELLIGENCE FEED" accent={C.cyan}>
+      <div className="space-y-1">
+        {alerts.map((a, i) => (
+          <AlertStrip key={i} text={a.text} severity={a.severity} />
+        ))}
       </div>
-    );
-  }
+    </Panel>
+  );
+}

@@ -1,74 +1,33 @@
-export default function ProbabilityPanel({
-    market,
-  }: any) {
-  
-    return (
-  
-      <div className="bg-zinc-950 border border-zinc-800 rounded-2xl p-5">
-  
-        <h2 className="text-lg font-bold text-green-400 mb-4">
-          Probabilities
-        </h2>
-  
-        <div className="space-y-5">
-  
-          <ProbabilityBar
-            label="Bull Probability"
-            value={market.bull_probability}
-            color="bg-green-500"
-          />
-  
-          <ProbabilityBar
-            label="Trend Probability"
-            value={market.trend_probability}
-            color="bg-cyan-500"
-          />
-  
-          <ProbabilityBar
-            label="Crisis Probability"
-            value={market.crisis_probability}
-            color="bg-red-500"
-          />
-  
-        </div>
-  
+"use client";
+
+import { C } from "@/lib/colors";
+import { probFraction } from "@/lib/format";
+import { Panel, ProgressBar, Divider } from "@/components/ui/primitives";
+
+export default function ProbabilityPanel({ market }: any) {
+  const bull = probFraction(market.bull_probability);
+  const bear = 1 - bull;
+  const trend = probFraction(market.trend_probability);
+  const meanRev = probFraction(market.mean_revert_probability);
+  const crisis = probFraction(market.crisis_probability);
+  const volExpand = market.vol_regime?.toUpperCase().includes("EXPAND") ? 0.65 : 0.25;
+
+  return (
+    <Panel label="PROBABILISTIC ENGINE" accent={C.bullish}>
+      <div className="space-y-1.5">
+        <ProgressBar label="BULL" value={bull} color={C.bullish} />
+        <ProgressBar label="BEAR" value={bear} color={C.bearish} />
       </div>
-    );
-  }
-  
-  function ProbabilityBar({
-    label,
-    value,
-    color,
-  }: any) {
-  
-    return (
-  
-      <div>
-  
-        <div className="flex justify-between mb-2">
-  
-          <span className="text-zinc-400 text-sm">
-            {label}
-          </span>
-  
-          <span className="text-white font-bold">
-            {Number(value ?? 0).toFixed(0)}%
-          </span>
-  
-        </div>
-  
-        <div className="w-full h-3 bg-zinc-800 rounded-full overflow-hidden">
-  
-          <div
-            className={`${color} h-full rounded-full`}
-            style={{
-              width: `${Math.min(100, Math.max(0, Number(value ?? 0)))}%`,
-            }}
-          />
-  
-        </div>
-  
+      <Divider label="HMM STATE" />
+      <div className="space-y-1.5">
+        <ProgressBar label="TREND CONT" value={trend} color={C.bullish} />
+        <ProgressBar label="MEAN REV" value={meanRev} color={C.cyan} />
+        <ProgressBar label="CRISIS" value={crisis} color={C.critical} />
       </div>
-    );
-  }
+      <Divider label="VOLATILITY" />
+      <div className="space-y-1.5">
+        <ProgressBar label="VOL EXPAND" value={volExpand} color={C.volatile} />
+      </div>
+    </Panel>
+  );
+}

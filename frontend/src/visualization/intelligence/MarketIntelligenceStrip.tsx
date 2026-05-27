@@ -5,8 +5,11 @@ export default function
         market,
     }: any) {
 
-    const state =
-        market.market_state
+    const state = market?.market_state
+
+    if (!state) {
+        return null
+    }
 
     return (
 

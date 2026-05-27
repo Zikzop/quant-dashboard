@@ -52,7 +52,7 @@ export default function RiskPanel({
         </span>
   
         <span className="text-white font-bold">
-          {value}
+          {value ?? "--"}
         </span>
   
       </div>

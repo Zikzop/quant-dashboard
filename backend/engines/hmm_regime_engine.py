@@ -85,11 +85,11 @@ class HMMRegimeEngine:
 
         mr_s, tr_s, cr_s = _map_states_by_volatility(window, hidden_states)
 
+        label = _regime_label_for_state(latest_state, mr_s, tr_s, cr_s)
         return {
             "regime_state": latest_state,
-            "hmm_regime": _regime_label_for_state(
-                latest_state, mr_s, tr_s, cr_s
-            ),
+            "hmm_regime": label,
+            "regime_label": label,
             "mean_revert_probability": round(
                 float(latest_probs[mr_s] * 100), 4
             ),

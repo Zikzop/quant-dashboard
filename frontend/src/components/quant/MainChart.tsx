@@ -153,6 +153,11 @@ function displayConfidence(confidence?: number): string {
   return `${pct.toFixed(0)}%`;
 }
 
+function finiteNum(value: number | undefined | null, fallback = 0): number {
+  if (value == null || !Number.isFinite(value)) return fallback;
+  return value;
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // SUB-COMPONENTS
 // ─────────────────────────────────────────────────────────────────────────────
@@ -634,31 +639,33 @@ export default function MainChart({ market }: { market: MarketPayload }) {
 
     const candles = market.chart_data.map((b) => ({
       time: b.time,
-      open: b.open,
-      high: b.high,
-      low: b.low,
-      close: b.close,
+      open: finiteNum(b.open),
+      high: finiteNum(b.high),
+      low: finiteNum(b.low),
+      close: finiteNum(b.close),
     }));
 
     const ema20Data = market.chart_data.map((b) => ({
       time: b.time,
-      value: b.ema20,
+      value: finiteNum(b.ema20),
     }));
 
     const ema50Data = market.chart_data.map((b) => ({
       time: b.time,
-      value: b.ema50,
+      value: finiteNum(b.ema50),
     }));
 
     const toOverlay = (bars: ChartBar[]) =>
       bars.map((b) => ({ time: b.time, value: b.close }));
 
     const volHistData = market.chart_data.map((b) => {
-      const garchVol = b.garch_vol ?? 0;
+      const garchVol = finiteNum(b.garch_vol);
       return {
         time: b.time,
         value: garchVol,
-        color: b.close > b.open ? C.volHistBull : C.volHistBear,
+        color: finiteNum(b.close) > finiteNum(b.open)
+          ? C.volHistBull
+          : C.volHistBear,
       };
     });
 

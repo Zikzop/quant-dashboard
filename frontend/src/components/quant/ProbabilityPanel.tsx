@@ -53,7 +53,7 @@ export default function ProbabilityPanel({
           </span>
   
           <span className="text-white font-bold">
-            {value}%
+            {Number(value ?? 0).toFixed(0)}%
           </span>
   
         </div>
@@ -63,7 +63,7 @@ export default function ProbabilityPanel({
           <div
             className={`${color} h-full rounded-full`}
             style={{
-              width: `${value}%`,
+              width: `${Math.min(100, Math.max(0, Number(value ?? 0)))}%`,
             }}
           />
   

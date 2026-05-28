@@ -26,3 +26,6 @@ build/
 # Coverage
 .coverage
 htmlcov/
+
+# Backend disk cache (raw bars / regime outputs written at runtime)
+.cache/

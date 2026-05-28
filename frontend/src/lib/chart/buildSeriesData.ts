@@ -9,10 +9,14 @@ export function chartTime(v: string | number): ChartTime {
   return v;
 }
 
+// Line series accept either a valued point or a whitespace point (time only),
+// which renders as a gap instead of dragging the price scale toward zero.
+type LinePoint = { time: ChartTime; value: number } | { time: ChartTime };
+
 export interface ChartSeriesBundle {
   candles: Array<{ time: ChartTime; open: number; high: number; low: number; close: number }>;
-  ema20: Array<{ time: ChartTime; value: number }>;
-  ema50: Array<{ time: ChartTime; value: number }>;
+  ema20: LinePoint[];
+  ema50: LinePoint[];
   trendOverlay: Array<{ time: ChartTime; value: number }>;
   volOverlay: Array<{ time: ChartTime; value: number }>;
   crisisOverlay: Array<{ time: ChartTime; value: number }>;
@@ -41,8 +45,14 @@ export function buildChartSeries(
     low: finiteNum(b.low),
     close: finiteNum(b.close),
   }));
-  const ema20 = bars.map((b) => ({ time: t(b.time), value: finiteNum(b.ema20) }));
-  const ema50 = bars.map((b) => ({ time: t(b.time), value: finiteNum(b.ema50) }));
+
+  // Emit whitespace (time-only) for missing EMA so the right price scale is not
+  // dragged down to 0 — that would squash candles into a thin band and leave
+  // most of the chart empty.
+  const line = (v: number | undefined | null, time: ChartTime): LinePoint =>
+    v != null && Number.isFinite(v) ? { time, value: v } : { time };
+  const ema20 = bars.map((b) => line(b.ema20, t(b.time)));
+  const ema50 = bars.map((b) => line(b.ema50, t(b.time)));
 
   const toOverlay = (subset: ChartBar[]) =>
     subset.map((b) => ({ time: t(b.time), value: b.close }));

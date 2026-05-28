@@ -495,12 +495,39 @@ type ChartSeriesRefs = {
   transition: ISeriesApi<"Histogram">;
 };
 
+// A saved viewport is only valid for the exact dataset it was captured on.
+// Logical ranges are bar-index based, so restoring one against a dataset with a
+// different bar count pans the chart into empty space (no candles visible).
+type SavedViewport = { range: LogicalRange; barCount: number };
+
+const CHART_DEBUG =
+  typeof process !== "undefined" && process.env.NODE_ENV !== "production";
+
+function chartLog(...args: unknown[]) {
+  if (CHART_DEBUG) console.log("[MainChart]", ...args);
+}
+
+function viewportMatchesData(
+  saved: SavedViewport | undefined,
+  barCount: number,
+): boolean {
+  if (!saved || barCount === 0) return false;
+  const { range, barCount: savedCount } = saved;
+  if (savedCount !== barCount) return false; // dataset changed → re-fit
+  if (!Number.isFinite(range.from) || !Number.isFinite(range.to)) return false;
+  // Require meaningful overlap with the actual bars.
+  const overlap = Math.min(range.to, barCount) - Math.max(range.from, 0);
+  return overlap >= 1;
+}
+
 export default function MainChart({ market }: { market: MarketPayload }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const seriesRef = useRef<ChartSeriesRefs | null>(null);
-  const viewportByContext = useRef<Record<string, LogicalRange>>({});
+  const markersRef = useRef<ReturnType<typeof createSeriesMarkers> | null>(null);
+  const viewportByContext = useRef<Record<string, SavedViewport>>({});
   const contextKeyRef = useRef("");
+  const contextBarCountRef = useRef(0);
 
   const dd = useRiskStore((s) => s.drawdown);
   const pf = useRiskStore((s) => s.propFirm);
@@ -524,18 +551,34 @@ export default function MainChart({ market }: { market: MarketPayload }) {
     htfPenalty,
   ), [market, dd, pf, risk, alpha, slip, lat, htfPenalty]);
 
-  const bars = useMemo(
-    () => sanitizeChartBars(market.chart_data ?? []),
-    [market.chart_data],
-  );
+  const bars = useMemo(() => {
+    const raw = market.chart_data ?? [];
+    const clean = sanitizeChartBars(raw);
+    chartLog("data flow", {
+      asset: activeAsset,
+      timeframe: activeTF,
+      range: activeRange,
+      fetched: raw.length,
+      sanitized: clean.length,
+      firstTime: clean[0]?.time,
+      lastTime: clean[clean.length - 1]?.time,
+      timeType: typeof clean[0]?.time,
+    });
+    return clean;
+  }, [market.chart_data, activeAsset, activeTF, activeRange]);
+
+  const hasData = bars.length > 0;
 
   const applySeriesData = useCallback(
-    (fitContent: boolean) => {
+    (key: string) => {
       const chart = chartRef.current;
       const series = seriesRef.current;
       if (!chart || !series || !bars.length) return;
 
       const bundle = buildChartSeries(bars, entryQuality.signals_suppressed);
+
+      // Correct update order: price series first, then overlays/markers, then
+      // viewport — so autoscale and fitContent see the candles.
       series.candle.setData(bundle.candles);
       series.ema20.setData(bundle.ema20);
       series.ema50.setData(bundle.ema50);
@@ -545,19 +588,29 @@ export default function MainChart({ market }: { market: MarketPayload }) {
       series.volHist.setData(bundle.volHist);
       series.transition.setData(bundle.transitions);
 
-      if (bundle.markers.length) {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        createSeriesMarkers(series.candle, bundle.markers as any[]);
-      }
+      // Update the single markers primitive in place (creating a new one each
+      // update would stack duplicate marker layers on the series).
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      markersRef.current?.setMarkers(bundle.markers as any[]);
 
       chart.priceScale("right").applyOptions({ autoScale: true });
 
-      const saved = viewportByContext.current[contextKey];
-      if (saved) {
-        chart.timeScale().setVisibleLogicalRange(saved);
-      } else if (fitContent) {
+      // Always land on a VALID viewport: restore only a same-dataset range,
+      // otherwise fit the data. Never leave the chart panned to empty space.
+      const saved = viewportByContext.current[key];
+      if (viewportMatchesData(saved, bars.length)) {
+        chart.timeScale().setVisibleLogicalRange(saved!.range);
+      } else {
         chart.timeScale().fitContent();
       }
+
+      chartLog("applySeriesData", {
+        key,
+        candles: bundle.candles.length,
+        firstTime: bundle.candles[0]?.time,
+        lastTime: bundle.candles[bundle.candles.length - 1]?.time,
+        restored: viewportMatchesData(saved, bars.length),
+      });
     },
     [bars, entryQuality.signals_suppressed],
   );
@@ -641,19 +694,34 @@ export default function MainChart({ market }: { market: MarketPayload }) {
       }),
     };
     chart.priceScale("vol").applyOptions({ scaleMargins: { top: 0.85, bottom: 0 } });
+    markersRef.current = createSeriesMarkers(seriesRef.current.candle, []);
     chartRef.current = chart;
 
-    const handleResize = () => {
-      if (!containerRef.current) return;
-      chart.applyOptions({ width: containerRef.current.clientWidth });
+    const applyWidth = () => {
+      const el = containerRef.current;
+      if (!el) return;
+      const w = el.clientWidth;
+      if (w > 0) chart.applyOptions({ width: w });
     };
-    window.addEventListener("resize", handleResize);
+    applyWidth();
+
+    // A ResizeObserver (not just window 'resize') recovers from a 0-width first
+    // paint and panel/sidebar layout changes — a zero-width chart renders no
+    // visible candles even when data is set correctly.
+    const ro =
+      typeof ResizeObserver !== "undefined"
+        ? new ResizeObserver(() => applyWidth())
+        : null;
+    if (ro && containerRef.current) ro.observe(containerRef.current);
+    window.addEventListener("resize", applyWidth);
 
     return () => {
-      window.removeEventListener("resize", handleResize);
+      window.removeEventListener("resize", applyWidth);
+      ro?.disconnect();
       chart.remove();
       chartRef.current = null;
       seriesRef.current = null;
+      markersRef.current = null;
     };
   }, []);
 
@@ -662,11 +730,17 @@ export default function MainChart({ market }: { market: MarketPayload }) {
     const chart = chartRef.current;
     if (!chart || !bars.length) return;
 
+    // Capture the outgoing viewport against the bar count it was shown with, so
+    // we only ever restore it onto an identically-shaped dataset.
     const prevKey = contextKeyRef.current;
-    const contextChanged = prevKey !== contextKey;
     if (prevKey) {
       const lr = chart.timeScale().getVisibleLogicalRange();
-      if (lr) viewportByContext.current[prevKey] = lr;
+      if (lr) {
+        viewportByContext.current[prevKey] = {
+          range: lr,
+          barCount: contextBarCountRef.current,
+        };
+      }
     }
 
     const isIntraday = typeof bars[0]?.time === "number";
@@ -674,8 +748,9 @@ export default function MainChart({ market }: { market: MarketPayload }) {
       timeScale: { timeVisible: isIntraday, secondsVisible: false },
     });
 
-    applySeriesData(contextChanged);
+    applySeriesData(contextKey);
     contextKeyRef.current = contextKey;
+    contextBarCountRef.current = bars.length;
   }, [bars, contextKey, applySeriesData]);
 
   return (
@@ -711,13 +786,30 @@ export default function MainChart({ market }: { market: MarketPayload }) {
       {/* Chart + overlays */}
       <div className="relative">
         <div ref={containerRef} className="w-full" />
-        <RegimeIntelligenceOverlay market={market} />
-        <EntryQualityOverlay quality={entryQuality} />
-        <VolatilityStateOverlay market={market} />
-        <MTFAlignmentOverlay />
-        <ExecutionQualityOverlay />
-        <AlphaHealthOverlay />
-        <ChartLegendBar />
+        {!hasData && (
+          <div
+            className="absolute inset-0 z-[60] flex flex-col items-center justify-center"
+            style={{ background: "rgba(8,8,9,0.92)" }}
+          >
+            <div style={{ fontSize: T.md, fontWeight: 700, color: C.volatile, letterSpacing: "0.12em" }}>
+              NO CHART DATA
+            </div>
+            <div style={{ fontSize: T.micro, color: C.t3, letterSpacing: "0.08em", marginTop: 6 }}>
+              {getAssetDisplayLabel(activeAsset)} · {activeTF} · {activeRange} — awaiting valid OHLCV
+            </div>
+          </div>
+        )}
+        {hasData && (
+          <>
+            <RegimeIntelligenceOverlay market={market} />
+            <EntryQualityOverlay quality={entryQuality} />
+            <VolatilityStateOverlay market={market} />
+            <MTFAlignmentOverlay />
+            <ExecutionQualityOverlay />
+            <AlphaHealthOverlay />
+            <ChartLegendBar />
+          </>
+        )}
       </div>
     </div>
   );

@@ -116,5 +116,7 @@ class MarketPayload(BaseModel):
     mean_revert_probability: float
     regime_transition: RegimeTransition
     chart_data: List[ChartBar]
+    historical_range: str
+    display_bars: int
     correlation: Optional[Dict[str, Any]] = None
     meta: Optional[Dict[str, Any]] = None

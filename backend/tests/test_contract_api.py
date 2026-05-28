@@ -35,11 +35,14 @@ def test_health_and_assets():
 
 def test_market_endpoint_matches_contract():
     c = _client()
-    r = c.get("/market/timeframe/1H?symbol=BTC")
+    r = c.get("/market/timeframe/1H?symbol=BTC&range=3M")
     assert r.status_code == 200
     assert "X-Request-ID" in r.headers
+    body = r.json()
     # Strict contract validation: must parse with extra="forbid".
-    MarketPayload.model_validate(r.json())
+    validated = MarketPayload.model_validate(body)
+    assert validated.historical_range == "3M"
+    assert validated.display_bars > 0
 
 
 def test_invalid_timeframe_and_symbol():
@@ -85,6 +88,8 @@ def test_pipeline_payload_validates_against_schema(synthetic_bars):
     ctx = build_context(ASSET_REGISTRY["BTC"], spec, synthetic_bars)
     payload = run_pipeline(ctx).payload
     payload["meta"] = {"cache_hit": False}
+    payload["historical_range"] = ctx.historical_range
+    payload["display_bars"] = ctx.display_bars
     MarketPayload.model_validate(payload)
 
 

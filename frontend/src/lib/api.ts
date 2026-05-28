@@ -74,6 +74,8 @@ export const MarketPayloadSchema = z
     vol_regime: z.string(),
     hmm_regime: z.string(),
     chart_data: z.array(ChartBarSchema),
+    historical_range: z.string().optional(),
+    display_bars: z.number().optional(),
     regime_transition: RegimeTransitionSchema.optional(),
     correlation: z.unknown().nullable().optional(),
   })

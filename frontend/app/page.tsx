@@ -7,8 +7,10 @@ import TopBar from "../src/components/quant/TopBar";
 import WorkspaceNav from "../src/components/workspace/WorkspaceNav";
 import MarketIntelligenceStrip from "@/visualization/intelligence/MarketIntelligenceStrip";
 import TimeframeSelector from "@/components/mtf/TimeframeSelector";
+import AssetSelector from "@/components/mtf/AssetSelector";
 import { useMarketStore } from "@/state/stores/useMarketStore";
 import { useTimeframeStore } from "@/state/stores/useTimeframeStore";
+import { fetchMarketTimeframe } from "@/lib/api";
 import { TIMEFRAMES, type Timeframe } from "@/types/market";
 
 const MainChart = dynamic(() => import("../src/components/quant/MainChart"), {
@@ -54,11 +56,7 @@ export default function Home() {
     const tfStore = useTimeframeStore.getState();
     const activeTF = tfStore.activeTimeframe;
 
-    fetch(`http://127.0.0.1:8000/market/timeframe/${activeTF}`)
-      .then((res) => {
-        if (!res.ok) throw new Error(`Market API returned ${res.status}`);
-        return res.json();
-      })
+    fetchMarketTimeframe(activeTF, tfStore.activeSymbol)
       .then((data) => {
         if (cancelled) return;
         setMarket(data);
@@ -124,6 +122,7 @@ export default function Home() {
 function ChartWorkspace({ market }: { market: any }) {
   return (
     <div className="h-full overflow-auto" style={{ background: "#0a0a0c" }}>
+      <AssetSelector />
       <TimeframeSelector />
       <div className="grid grid-cols-12 gap-px" style={{ background: "#1c1c20" }}>
         <div className="col-span-12 xl:col-span-9" style={{ background: "#080809" }}>

@@ -11,7 +11,6 @@ from typing import Dict, List, Optional
 
 import numpy as np
 import pandas as pd
-import yfinance as yf
 
 # Canonical cross-asset universe
 ASSET_UNIVERSE: Dict[str, str] = {
@@ -29,40 +28,25 @@ ZSCORE_LOOKBACK = 252
 SHORT_REGIME_WINDOW = 20
 
 
-def _flatten_yfinance_columns(df: pd.DataFrame) -> pd.DataFrame:
-    if isinstance(df.columns, pd.MultiIndex):
-        df.columns = df.columns.get_level_values(0)
-    return df
-
-
 def fetch_aligned_closes(
     period: str = "2y",
     interval: str = "1d",
 ) -> pd.DataFrame:
-    """Download and align close prices for the full asset universe."""
-    series: Dict[str, pd.Series] = {}
+    """Align close prices for the full asset universe via the provider DAL.
 
-    for label, ticker in ASSET_UNIVERSE.items():
-        raw = yf.download(
-            ticker,
-            period=period,
-            interval=interval,
-            progress=False,
-            auto_adjust=True,
-        )
-        if raw.empty:
-            continue
+    This engine consumes normalized provider data only — it does NOT import
+    yfinance. Provider selection, caching, retries, and timeouts are handled by
+    the data-access layer, so correlation works at any timeframe and against any
+    provider.
+    """
+    # Imported lazily to keep the engine import graph free of the data layer
+    # at module load time (avoids import cycles in lightweight test contexts).
+    from data.access import get_market_data_access
 
-        raw = _flatten_yfinance_columns(raw)
-        close = raw["Close"].squeeze()
-        close.name = label
-        series[label] = close
-
-    if not series:
-        raise ValueError("No cross-asset price data returned from yfinance.")
-
-    prices = pd.DataFrame(series).sort_index().ffill().dropna(how="any")
-    return prices
+    dal = get_market_data_access()
+    return dal.fetch_aligned_closes(
+        ASSET_UNIVERSE, yf_interval=interval, yf_period=period
+    )
 
 
 def _log_returns(prices: pd.DataFrame) -> pd.DataFrame:

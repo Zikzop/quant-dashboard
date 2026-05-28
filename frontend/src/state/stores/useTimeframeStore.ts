@@ -10,6 +10,7 @@ import type {
 } from "@/types/market";
 import { TIMEFRAMES, TF_HIERARCHY } from "@/types/market";
 import { useMarketStore } from "./useMarketStore";
+import { fetchMarketTimeframe } from "@/lib/api";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // EXTRACT REAL REGIME DATA from a backend MarketPayload
@@ -300,7 +301,9 @@ interface TimeframeStore {
   alignment: MTFAlignment;
   historicalContext: HistoricalContext;
 
+  activeSymbol: string;
   setActiveTimeframe: (tf: Timeframe) => void;
+  setActiveSymbol: (symbol: string) => void;
   fetchTimeframe: (tf: Timeframe) => Promise<void>;
   setTimeframeData: (tf: Timeframe, data: MarketPayload) => void;
   initializeAllTimeframes: () => void;
@@ -331,6 +334,7 @@ const EMPTY_CONTEXT: HistoricalContext = {
 
 export const useTimeframeStore = create<TimeframeStore>((set, get) => ({
   activeTimeframe: "1D",
+  activeSymbol: "BTC",
   timeframeCache: {},
   loadingTimeframes: [],
   regimes: TIMEFRAMES.map(placeholderRegime),
@@ -348,18 +352,35 @@ export const useTimeframeStore = create<TimeframeStore>((set, get) => ({
     }
   },
 
+  setActiveSymbol: (symbol) => {
+    if (symbol === get().activeSymbol) return;
+    // Switching asset invalidates all cached per-timeframe payloads.
+    set({
+      activeSymbol: symbol,
+      timeframeCache: {},
+      regimes: TIMEFRAMES.map(placeholderRegime),
+      alignment: EMPTY_ALIGNMENT,
+      historicalContext: EMPTY_CONTEXT,
+    });
+    const activeTF = get().activeTimeframe;
+    get().fetchTimeframe(activeTF);
+    TIMEFRAMES.filter((tf) => tf !== activeTF).forEach((tf) =>
+      get().fetchTimeframe(tf),
+    );
+  },
+
   fetchTimeframe: async (tf) => {
     const { loadingTimeframes } = get();
     if (loadingTimeframes.includes(tf)) return;
 
     set({ loadingTimeframes: [...loadingTimeframes, tf] });
 
+    const symbol = get().activeSymbol;
     try {
-      const res = await fetch(
-        `http://127.0.0.1:8000/market/timeframe/${tf}`,
-      );
-      if (!res.ok) throw new Error(`API returned ${res.status}`);
-      const data: MarketPayload = await res.json();
+      const data = await fetchMarketTimeframe(tf, symbol);
+
+      // Ignore stale responses that arrive after an asset switch.
+      if (get().activeSymbol !== symbol) return;
 
       get().setTimeframeData(tf, data);
 

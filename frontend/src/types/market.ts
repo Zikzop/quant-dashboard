@@ -290,6 +290,15 @@ export type Timeframe = "1m" | "5m" | "15m" | "1H" | "4H" | "1D";
 
 export const TIMEFRAMES: Timeframe[] = ["1m", "5m", "15m", "1H", "4H", "1D"];
 
+/** Institutional lookback window for chart + regime history. */
+export type HistoricalRange = "1D" | "1W" | "1M" | "3M" | "6M" | "1Y" | "2Y";
+
+export const HISTORICAL_RANGES: HistoricalRange[] = [
+  "1D", "1W", "1M", "3M", "6M", "1Y", "2Y",
+];
+
+export const DEFAULT_HISTORICAL_RANGE: HistoricalRange = "3M";
+
 export const TF_HIERARCHY: Record<Timeframe, number> = {
   "1m": 0, "5m": 1, "15m": 2, "1H": 3, "4H": 4, "1D": 5,
 };

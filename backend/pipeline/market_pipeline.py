@@ -43,7 +43,7 @@ def _build_chart_data(
     hmm_history: pd.DataFrame,
 ) -> list[dict]:
     df = ctx.engine_df
-    chart_bars = min(ctx.spec.chart_bars, len(df))
+    chart_bars = min(ctx.display_bars, len(df))
     is_intraday = ctx.spec.is_intraday
     out: list[dict] = []
 

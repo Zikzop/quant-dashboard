@@ -34,6 +34,8 @@ class PipelineContext:
     spec: TimeframeSpec
     bars: pd.DataFrame          # flat normalized schema (unified)
     engine_df: pd.DataFrame     # title-case OHLCV, UTC DatetimeIndex
+    display_bars: int = 120     # chart window (range-aware)
+    historical_range: str = "3M"
     feature_version: str = FEATURE_VERSION
 
 
@@ -50,6 +52,9 @@ def build_context(
     asset: AssetDefinition,
     spec: TimeframeSpec,
     bars: pd.DataFrame,
+    *,
+    display_bars: int | None = None,
+    historical_range: str = "3M",
 ) -> PipelineContext:
     if bars is None or bars.empty:
         raise InsufficientDataError(
@@ -66,4 +71,6 @@ def build_context(
         spec=spec,
         bars=bars,
         engine_df=engine_df,
+        display_bars=display_bars if display_bars is not None else spec.chart_bars,
+        historical_range=historical_range,
     )

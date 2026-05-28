@@ -8,10 +8,12 @@ import WorkspaceNav from "../src/components/workspace/WorkspaceNav";
 import MarketIntelligenceStrip from "@/visualization/intelligence/MarketIntelligenceStrip";
 import TimeframeSelector from "@/components/mtf/TimeframeSelector";
 import AssetSelector from "@/components/mtf/AssetSelector";
+import RangeSelector from "@/components/mtf/RangeSelector";
+import { marketMatchesAsset } from "@/lib/assets/registry";
 import { useMarketStore } from "@/state/stores/useMarketStore";
 import { useTimeframeStore } from "@/state/stores/useTimeframeStore";
 import { fetchMarketTimeframe } from "@/lib/api";
-import { TIMEFRAMES, type Timeframe } from "@/types/market";
+import { TIMEFRAMES } from "@/types/market";
 
 const MainChart = dynamic(() => import("../src/components/quant/MainChart"), {
   ssr: false,
@@ -46,7 +48,11 @@ export default function Home() {
   const setMarket = useMarketStore((s) => s.setMarket);
   const setError = useMarketStore((s) => s.setError);
   const activeWorkspace = useMarketStore((s) => s.activeWorkspace);
+  const activeAsset = useTimeframeStore((s) => s.activeAsset);
+  const activeRange = useTimeframeStore((s) => s.activeRange);
   const didInit = useRef(false);
+
+  const marketSynced = marketMatchesAsset(market, activeAsset);
 
   useEffect(() => {
     if (didInit.current) return;
@@ -56,7 +62,7 @@ export default function Home() {
     const tfStore = useTimeframeStore.getState();
     const activeTF = tfStore.activeTimeframe;
 
-    fetchMarketTimeframe(activeTF, tfStore.activeSymbol)
+    fetchMarketTimeframe(activeTF, tfStore.activeAsset, tfStore.activeRange)
       .then((data) => {
         if (cancelled) return;
         setMarket(data);
@@ -85,7 +91,7 @@ export default function Home() {
     );
   }
 
-  if (loading || !market) {
+  if (loading || !market || !marketSynced) {
     return (
       <main className="h-screen flex items-center justify-center" style={{ background: "#080809" }}>
         <div className="text-center">
@@ -124,6 +130,7 @@ function ChartWorkspace({ market }: { market: any }) {
     <div className="h-full overflow-auto" style={{ background: "#0a0a0c" }}>
       <AssetSelector />
       <TimeframeSelector />
+      <RangeSelector />
       <div className="grid grid-cols-12 gap-px" style={{ background: "#1c1c20" }}>
         <div className="col-span-12 xl:col-span-9" style={{ background: "#080809" }}>
           <MainChart market={market} />

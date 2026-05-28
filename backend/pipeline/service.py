@@ -21,7 +21,7 @@ this safe to evolve.
 from __future__ import annotations
 
 from assets.registry import resolve_symbol
-from assets.timeframes import get_timeframe_spec
+from assets.timeframes import chart_bars_for_range, get_timeframe_spec, normalize_range
 from cache.keys import LEVEL_REGIME, make_cache_key
 from cache.store import CacheStore, get_cache_store
 from core.config import Settings, get_settings
@@ -50,16 +50,20 @@ class MarketIntelligenceService:
         symbol_or_id: str | None,
         timeframe: str,
         *,
+        historical_range: str | None = None,
         use_cache: bool = True,
     ) -> dict:
         asset = resolve_symbol(symbol_or_id)
         spec = get_timeframe_spec(timeframe)
+        range_label = normalize_range(historical_range)
+        display_bars = chart_bars_for_range(timeframe, range_label)
+        cache_range = f"{spec.yf_period}:{range_label}"
 
         regime_key = make_cache_key(
             level=LEVEL_REGIME,
             symbol=asset.provider_symbol,
             timeframe=timeframe,
-            data_range=spec.yf_period,
+            data_range=cache_range,
         )
 
         if use_cache:
@@ -72,9 +76,17 @@ class MarketIntelligenceService:
                 return cached
 
         bars, asset, raw_hit = self._dal.fetch_ohlcv(asset.asset_id, timeframe)
-        ctx = build_context(asset, spec, bars)
+        ctx = build_context(
+            asset,
+            spec,
+            bars,
+            display_bars=display_bars,
+            historical_range=range_label,
+        )
         result = run_pipeline(ctx)
         payload = result.payload
+        payload["historical_range"] = range_label
+        payload["display_bars"] = display_bars
 
         if timeframe == "1D":
             payload["correlation"] = self._safe_correlation(payload.get("regime", "UNKNOWN"))

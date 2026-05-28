@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 
 import { C } from "@/lib/colors";
+import { ASSET_IDS } from "@/lib/assets/registry";
 import { fetchAssets, type AssetInfo } from "@/lib/api";
 import { useTimeframeStore } from "@/state/stores/useTimeframeStore";
 
@@ -24,15 +25,20 @@ const FALLBACK: AssetInfo[] = [
 ];
 
 export default function AssetSelector() {
-  const activeSymbol = useTimeframeStore((s) => s.activeSymbol);
-  const setActiveSymbol = useTimeframeStore((s) => s.setActiveSymbol);
+  const activeAsset = useTimeframeStore((s) => s.activeAsset);
+  const setActiveAsset = useTimeframeStore((s) => s.setActiveAsset);
   const [assets, setAssets] = useState<AssetInfo[]>(FALLBACK);
 
   useEffect(() => {
     let cancelled = false;
     fetchAssets()
       .then((res) => {
-        if (!cancelled && res.assets.length) setAssets(res.assets);
+        if (!cancelled && res.assets.length) {
+          const ordered = ASSET_IDS.map(
+            (id) => res.assets.find((a) => a.asset_id === id) ?? FALLBACK.find((f) => f.asset_id === id),
+          ).filter(Boolean) as AssetInfo[];
+          setAssets(ordered.length ? ordered : res.assets);
+        }
       })
       .catch(() => {
         /* keep fallback universe */
@@ -60,12 +66,12 @@ export default function AssetSelector() {
       </div>
 
       {assets.map((a) => {
-        const isActive = a.asset_id === activeSymbol;
+        const isActive = a.asset_id === activeAsset;
         const cColor = CLASS_COLORS[a.asset_class] ?? C.t3;
         return (
           <button
             key={a.asset_id}
-            onClick={() => setActiveSymbol(a.asset_id)}
+            onClick={() => setActiveAsset(a.asset_id)}
             title={`${a.provider_symbol} · ${a.asset_class}`}
             className="relative flex items-center gap-1 px-2.5 h-full transition-colors"
             style={{
@@ -88,7 +94,7 @@ export default function AssetSelector() {
       <div className="flex-1" />
       <div className="flex items-center gap-2 px-3" style={{ borderLeft: `1px solid ${C.border}` }}>
         <span style={{ fontSize: 8, color: C.t3, letterSpacing: "0.1em" }}>
-          {assets.find((a) => a.asset_id === activeSymbol)?.provider_symbol ?? activeSymbol}
+          {assets.find((a) => a.asset_id === activeAsset)?.provider_symbol ?? activeAsset}
         </span>
       </div>
     </div>

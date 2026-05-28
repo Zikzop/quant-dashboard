@@ -8,9 +8,20 @@ import type {
   MarketPayload,
   ChartBar,
 } from "@/types/market";
-import { TIMEFRAMES, TF_HIERARCHY } from "@/types/market";
+import {
+  TIMEFRAMES,
+  TF_HIERARCHY,
+  DEFAULT_HISTORICAL_RANGE,
+  type HistoricalRange,
+} from "@/types/market";
 import { useMarketStore } from "./useMarketStore";
 import { fetchMarketTimeframe } from "@/lib/api";
+
+export type CacheKey = `${Timeframe}|${HistoricalRange}`;
+
+export function makeCacheKey(tf: Timeframe, range: HistoricalRange): CacheKey {
+  return `${tf}|${range}`;
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // EXTRACT REAL REGIME DATA from a backend MarketPayload
@@ -294,16 +305,23 @@ function computeHistoricalContext(chartData: ChartBar[]): HistoricalContext {
 // ─────────────────────────────────────────────────────────────────────────────
 
 interface TimeframeStore {
+  /** Canonical active asset id (BTC, DXY, …). */
+  activeAsset: string;
+  /** @deprecated Use activeAsset — kept for gradual migration. */
+  activeSymbol: string;
   activeTimeframe: Timeframe;
-  timeframeCache: Partial<Record<Timeframe, MarketPayload>>;
+  activeRange: HistoricalRange;
+  timeframeCache: Partial<Record<CacheKey, MarketPayload>>;
   loadingTimeframes: Timeframe[];
   regimes: TimeframeRegime[];
   alignment: MTFAlignment;
   historicalContext: HistoricalContext;
 
-  activeSymbol: string;
   setActiveTimeframe: (tf: Timeframe) => void;
+  setActiveAsset: (assetId: string) => void;
+  /** @deprecated Use setActiveAsset */
   setActiveSymbol: (symbol: string) => void;
+  setActiveRange: (range: HistoricalRange) => void;
   fetchTimeframe: (tf: Timeframe) => Promise<void>;
   setTimeframeData: (tf: Timeframe, data: MarketPayload) => void;
   initializeAllTimeframes: () => void;
@@ -332,9 +350,24 @@ const EMPTY_CONTEXT: HistoricalContext = {
   regime_history: [],
 };
 
+function resetMtfState() {
+  return {
+    timeframeCache: {} as Partial<Record<CacheKey, MarketPayload>>,
+    regimes: TIMEFRAMES.map(placeholderRegime),
+    alignment: EMPTY_ALIGNMENT,
+    historicalContext: EMPTY_CONTEXT,
+  };
+}
+
+function applyActiveMarket(data: MarketPayload) {
+  useMarketStore.getState().setMarket(data);
+}
+
 export const useTimeframeStore = create<TimeframeStore>((set, get) => ({
   activeTimeframe: "1D",
+  activeAsset: "BTC",
   activeSymbol: "BTC",
+  activeRange: DEFAULT_HISTORICAL_RANGE,
   timeframeCache: {},
   loadingTimeframes: [],
   regimes: TIMEFRAMES.map(placeholderRegime),
@@ -343,24 +376,42 @@ export const useTimeframeStore = create<TimeframeStore>((set, get) => ({
 
   setActiveTimeframe: (tf) => {
     set({ activeTimeframe: tf });
-    const cached = get().timeframeCache[tf];
+    const key = makeCacheKey(tf, get().activeRange);
+    const cached = get().timeframeCache[key];
     if (cached) {
-      useMarketStore.getState().setMarket(cached);
+      applyActiveMarket(cached);
       set({ historicalContext: computeHistoricalContext(cached.chart_data) });
     } else {
+      useMarketStore.getState().setLoading(true);
       get().fetchTimeframe(tf);
     }
   },
 
-  setActiveSymbol: (symbol) => {
-    if (symbol === get().activeSymbol) return;
-    // Switching asset invalidates all cached per-timeframe payloads.
+  setActiveAsset: (assetId) => {
+    if (assetId === get().activeAsset) return;
+    useMarketStore.getState().setLoading(true);
     set({
-      activeSymbol: symbol,
-      timeframeCache: {},
-      regimes: TIMEFRAMES.map(placeholderRegime),
-      alignment: EMPTY_ALIGNMENT,
-      historicalContext: EMPTY_CONTEXT,
+      activeAsset: assetId,
+      activeSymbol: assetId,
+      ...resetMtfState(),
+    });
+    const activeTF = get().activeTimeframe;
+    get().fetchTimeframe(activeTF);
+    TIMEFRAMES.filter((tf) => tf !== activeTF).forEach((tf) =>
+      get().fetchTimeframe(tf),
+    );
+  },
+
+  setActiveSymbol: (symbol) => {
+    get().setActiveAsset(symbol);
+  },
+
+  setActiveRange: (range) => {
+    if (range === get().activeRange) return;
+    useMarketStore.getState().setLoading(true);
+    set({
+      activeRange: range,
+      ...resetMtfState(),
     });
     const activeTF = get().activeTimeframe;
     get().fetchTimeframe(activeTF);
@@ -370,28 +421,38 @@ export const useTimeframeStore = create<TimeframeStore>((set, get) => ({
   },
 
   fetchTimeframe: async (tf) => {
-    const { loadingTimeframes } = get();
+    const { loadingTimeframes, activeAsset, activeRange } = get();
     if (loadingTimeframes.includes(tf)) return;
 
     set({ loadingTimeframes: [...loadingTimeframes, tf] });
 
-    const symbol = get().activeSymbol;
+    const requestAsset = activeAsset;
+    const requestRange = activeRange;
     try {
-      const data = await fetchMarketTimeframe(tf, symbol);
+      const data = await fetchMarketTimeframe(tf, requestAsset, requestRange);
 
-      // Ignore stale responses that arrive after an asset switch.
-      if (get().activeSymbol !== symbol) return;
+      if (
+        get().activeAsset !== requestAsset ||
+        get().activeRange !== requestRange
+      ) {
+        return;
+      }
 
       get().setTimeframeData(tf, data);
 
       if (get().activeTimeframe === tf) {
-        useMarketStore.getState().setMarket(data);
+        applyActiveMarket(data);
         set({
           historicalContext: computeHistoricalContext(data.chart_data),
         });
       }
     } catch (err) {
       console.error(`[MTF] Failed to fetch ${tf}:`, err);
+      if (get().activeTimeframe === tf) {
+        useMarketStore.getState().setError(
+          err instanceof Error ? err.message : `Failed to load ${tf}`,
+        );
+      }
     } finally {
       set((s) => ({
         loadingTimeframes: s.loadingTimeframes.filter((t) => t !== tf),
@@ -400,10 +461,11 @@ export const useTimeframeStore = create<TimeframeStore>((set, get) => ({
   },
 
   setTimeframeData: (tf, data) => {
-    const cache = { ...get().timeframeCache, [tf]: data };
+    const key = makeCacheKey(tf, get().activeRange);
+    const cache = { ...get().timeframeCache, [key]: data };
 
     const regimes = TIMEFRAMES.map((t) => {
-      const cached = cache[t];
+      const cached = cache[makeCacheKey(t, get().activeRange)];
       if (cached) return extractRegimeFromPayload(t, cached);
       return placeholderRegime(t);
     });

@@ -23,7 +23,13 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, PlainTextResponse
 
 from assets.registry import list_asset_metadata
-from assets.timeframes import CANONICAL_TIMEFRAMES, VALID_TIMEFRAMES
+from assets.timeframes import (
+    CANONICAL_TIMEFRAMES,
+    DEFAULT_HISTORICAL_RANGE,
+    HISTORICAL_RANGES,
+    VALID_TIMEFRAMES,
+    normalize_range,
+)
 from core.config import get_settings
 from core.logging import (
     clear_request_id,
@@ -109,6 +115,7 @@ def health():
         "provider": settings.market_data_provider,
         "feature_version": settings.feature_version,
         "timeframes": list(CANONICAL_TIMEFRAMES),
+        "historical_ranges": list(HISTORICAL_RANGES),
     }
 
 
@@ -123,6 +130,7 @@ def assets():
     return {
         "assets": list_asset_metadata(),
         "timeframes": list(CANONICAL_TIMEFRAMES),
+        "historical_ranges": list(HISTORICAL_RANGES),
     }
 
 
@@ -132,25 +140,37 @@ def assets():
 
 
 @app.get("/market")
-def get_market(symbol: str = "BTC"):
+def get_market(symbol: str = "BTC", range: str = DEFAULT_HISTORICAL_RANGE):
     """Legacy daily endpoint — now multi-asset and routed through the pipeline."""
-    return _market(symbol, DEFAULT_TIMEFRAME)
+    try:
+        range_label = normalize_range(range)
+    except ValueError as exc:
+        return JSONResponse(status_code=400, content={"error": str(exc)})
+    return _market(symbol, DEFAULT_TIMEFRAME, range_label)
 
 
 @app.get("/market/timeframe/{tf}")
-def get_market_timeframe(tf: str, symbol: str = "BTC"):
+def get_market_timeframe(
+    tf: str,
+    symbol: str = "BTC",
+    range: str = DEFAULT_HISTORICAL_RANGE,
+):
     if tf not in VALID_TIMEFRAMES:
         return JSONResponse(
             status_code=400,
             content={"error": f"Invalid timeframe: {tf}. Valid: {sorted(VALID_TIMEFRAMES)}"},
         )
-    return _market(symbol, tf)
+    try:
+        range_label = normalize_range(range)
+    except ValueError as exc:
+        return JSONResponse(status_code=400, content={"error": str(exc)})
+    return _market(symbol, tf, range_label)
 
 
-def _market(symbol: str, tf: str):
+def _market(symbol: str, tf: str, historical_range: str = DEFAULT_HISTORICAL_RANGE):
     service = get_market_intelligence_service()
     try:
-        payload = service.compute(symbol, tf)
+        payload = service.compute(symbol, tf, historical_range=historical_range)
         return _serialize(payload)
     except InsufficientDataError as exc:
         return JSONResponse(status_code=422, content={"error": str(exc)})

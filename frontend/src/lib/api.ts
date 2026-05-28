@@ -10,7 +10,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { z } from "zod";
-import type { MarketPayload } from "@/types/market";
+import type { HistoricalRange, MarketPayload } from "@/types/market";
 
 export const API_BASE_URL =
   (process.env.NEXT_PUBLIC_API_BASE_URL as string | undefined)?.replace(/\/$/, "") ??
@@ -111,9 +111,12 @@ function validate<T>(schema: z.ZodType<T>, data: unknown, context: string): void
 export async function fetchMarketTimeframe(
   tf: string,
   symbol: string,
+  range?: HistoricalRange,
 ): Promise<MarketPayload> {
+  const params = new URLSearchParams({ symbol });
+  if (range) params.set("range", range);
   const res = await fetch(
-    `${API_BASE_URL}/market/timeframe/${tf}?symbol=${encodeURIComponent(symbol)}`,
+    `${API_BASE_URL}/market/timeframe/${tf}?${params.toString()}`,
   );
   if (!res.ok) throw new Error(`Market API returned ${res.status} for ${tf}`);
   const data = await res.json();

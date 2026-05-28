@@ -9,13 +9,17 @@ import {
   AreaSeries,
   HistogramSeries,
 } from "lightweight-charts";
-import { useEffect, useRef, useMemo } from "react";
+import { useEffect, useRef, useMemo, useCallback } from "react";
+import type { IChartApi, ISeriesApi, LogicalRange } from "lightweight-charts";
 import { C, regimeColor, statusColor, proximityColor } from "@/lib/colors";
-import { fmt, fmtPct, probFraction, finiteNum } from "@/lib/format";
+import { fmt, fmtPct, probFraction } from "@/lib/format";
 import { useRiskStore } from "@/state/stores/useRiskStore";
 import { useAlphaStore } from "@/state/stores/useAlphaStore";
 import { useExecutionStore } from "@/state/stores/useExecutionStore";
 import { useTimeframeStore } from "@/state/stores/useTimeframeStore";
+import { getAssetDisplayLabel } from "@/lib/assets/registry";
+import { sanitizeChartBars } from "@/lib/chart/sanitizeBars";
+import { buildChartSeries } from "@/lib/chart/buildSeriesData";
 import MTFAlignmentOverlay from "@/components/mtf/MTFAlignmentOverlay";
 import type { MarketPayload, EntryQuality } from "@/types/market";
 
@@ -479,8 +483,23 @@ function ChartLegendBar() {
 // MAIN CHART COMPONENT
 // ─────────────────────────────────────────────────────────────────────────────
 
+type ChartSeriesRefs = {
+  candle: ISeriesApi<"Candlestick">;
+  ema20: ISeriesApi<"Line">;
+  ema50: ISeriesApi<"Line">;
+  trend: ISeriesApi<"Area">;
+  vol: ISeriesApi<"Area">;
+  crisis: ISeriesApi<"Area">;
+  volHist: ISeriesApi<"Histogram">;
+  transition: ISeriesApi<"Histogram">;
+};
+
 export default function MainChart({ market }: { market: MarketPayload }) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const chartRef = useRef<IChartApi | null>(null);
+  const seriesRef = useRef<ChartSeriesRefs | null>(null);
+  const viewportByContext = useRef<Record<string, LogicalRange>>({});
+  const contextKeyRef = useRef("");
 
   const dd = useRiskStore((s) => s.drawdown);
   const pf = useRiskStore((s) => s.propFirm);
@@ -490,7 +509,11 @@ export default function MainChart({ market }: { market: MarketPayload }) {
   const lat = useExecutionStore((s) => s.latency);
   const htfPenalty = useTimeframeStore((s) => s.alignment.htf_conflict_penalty);
   const activeTF = useTimeframeStore((s) => s.activeTimeframe);
+  const activeAsset = useTimeframeStore((s) => s.activeAsset);
+  const activeRange = useTimeframeStore((s) => s.activeRange);
   const tfLoading = useTimeframeStore((s) => s.loadingTimeframes);
+
+  const contextKey = `${activeAsset}|${activeTF}|${activeRange}`;
 
   const entryQuality = useMemo(() => computeEntryQuality(
     market,
@@ -500,32 +523,47 @@ export default function MainChart({ market }: { market: MarketPayload }) {
     htfPenalty,
   ), [market, dd, pf, risk, alpha, slip, lat, htfPenalty]);
 
-  useEffect(() => {
-    if (!containerRef.current || !market?.chart_data?.length) return;
+  const bars = useMemo(
+    () => sanitizeChartBars(market.chart_data ?? []),
+    [market.chart_data],
+  );
 
-    // lightweight-charts requires data strictly ascending and unique by time.
-    // Incoming chart_data can contain null/zero/duplicate timestamps, so sanitize
-    // once and derive every series from this clean array.
-    const timeKey = (v: string | number | null | undefined): number =>
-      typeof v === "number" ? v : Date.parse(String(v));
+  const applySeriesData = useCallback(
+    (fitContent: boolean) => {
+      const chart = chartRef.current;
+      const series = seriesRef.current;
+      if (!chart || !series || !bars.length) return;
 
-    const sortedBars = [...market.chart_data]
-      .filter((b) => b.time != null && Number.isFinite(timeKey(b.time)))
-      .sort((a, b) => timeKey(a.time) - timeKey(b.time));
+      const bundle = buildChartSeries(bars, entryQuality.signals_suppressed);
+      series.candle.setData(bundle.candles);
+      series.ema20.setData(bundle.ema20);
+      series.ema50.setData(bundle.ema50);
+      series.trend.setData(bundle.trendOverlay);
+      series.vol.setData(bundle.volOverlay);
+      series.crisis.setData(bundle.crisisOverlay);
+      series.volHist.setData(bundle.volHist);
+      series.transition.setData(bundle.transitions);
 
-    const bars: typeof market.chart_data = [];
-    for (const b of sortedBars) {
-      const last = bars[bars.length - 1];
-      if (last && timeKey(last.time) === timeKey(b.time)) {
-        bars[bars.length - 1] = b; // collapse duplicate timestamp, keep latest
-      } else {
-        bars.push(b);
+      if (bundle.markers.length) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        createSeriesMarkers(series.candle, bundle.markers as any[]);
       }
-    }
 
-    if (!bars.length) return;
+      chart.priceScale("right").applyOptions({ autoScale: true });
 
-    const isIntraday = typeof bars[0]?.time === "number";
+      const saved = viewportByContext.current[contextKey];
+      if (saved) {
+        chart.timeScale().setVisibleLogicalRange(saved);
+      } else if (fitContent) {
+        chart.timeScale().fitContent();
+      }
+    },
+    [bars, entryQuality.signals_suppressed],
+  );
+
+  // Single persistent chart instance — created once per mount.
+  useEffect(() => {
+    if (!containerRef.current) return;
 
     const chart = createChart(containerRef.current, {
       layout: {
@@ -548,23 +586,15 @@ export default function MainChart({ market }: { market: MarketPayload }) {
         borderColor: C.border,
         textColor: C.t2,
         minimumWidth: 64,
+        autoScale: true,
       },
       timeScale: {
         borderColor: C.border,
-        timeVisible: isIntraday,
+        timeVisible: true,
         secondsVisible: false,
       },
     });
 
-    const candleSeries = chart.addSeries(CandlestickSeries, {
-      upColor: C.candleUp,
-      downColor: C.candleDown,
-      borderVisible: false,
-      wickUpColor: C.candleUp,
-      wickDownColor: C.candleDown,
-    });
-
-    // Regime background overlays
     const makeOverlay = (color: string) =>
       chart.addSeries(AreaSeries, {
         lineColor: "rgba(0,0,0,0)",
@@ -577,88 +607,75 @@ export default function MainChart({ market }: { market: MarketPayload }) {
         crosshairMarkerVisible: false,
       });
 
-    const trendOverlay = makeOverlay("rgba(34,197,94,0.07)");
-    const volOverlay = makeOverlay("rgba(245,158,11,0.07)");
-    const crisisOverlay = makeOverlay("rgba(239,68,68,0.07)");
-
-    const ema20Series = chart.addSeries(LineSeries, { color: C.ema20, lineWidth: 1, lastValueVisible: false, priceLineVisible: false });
-    const ema50Series = chart.addSeries(LineSeries, { color: C.ema50, lineWidth: 1, lastValueVisible: false, priceLineVisible: false });
-
-    const volHistogram = chart.addSeries(HistogramSeries, { priceFormat: { type: "volume" }, priceScaleId: "vol" });
+    seriesRef.current = {
+      candle: chart.addSeries(CandlestickSeries, {
+        upColor: C.candleUp,
+        downColor: C.candleDown,
+        borderVisible: false,
+        wickUpColor: C.candleUp,
+        wickDownColor: C.candleDown,
+      }),
+      ema20: chart.addSeries(LineSeries, {
+        color: C.ema20,
+        lineWidth: 1,
+        lastValueVisible: false,
+        priceLineVisible: false,
+      }),
+      ema50: chart.addSeries(LineSeries, {
+        color: C.ema50,
+        lineWidth: 1,
+        lastValueVisible: false,
+        priceLineVisible: false,
+      }),
+      trend: makeOverlay("rgba(34,197,94,0.07)"),
+      vol: makeOverlay("rgba(245,158,11,0.07)"),
+      crisis: makeOverlay("rgba(239,68,68,0.07)"),
+      volHist: chart.addSeries(HistogramSeries, {
+        priceFormat: { type: "volume" },
+        priceScaleId: "vol",
+      }),
+      transition: chart.addSeries(HistogramSeries, {
+        priceFormat: { type: "volume" },
+        priceScaleId: "vol",
+      }),
+    };
     chart.priceScale("vol").applyOptions({ scaleMargins: { top: 0.85, bottom: 0 } });
-
-    const transitionSeries = chart.addSeries(HistogramSeries, { priceFormat: { type: "volume" }, priceScaleId: "vol" });
-
-    // Data mapping — cast time to satisfy lightweight-charts branded Time type
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const t = (v: string | number): any => v;
-
-    const candles = bars.map((b) => ({ time: t(b.time), open: finiteNum(b.open), high: finiteNum(b.high), low: finiteNum(b.low), close: finiteNum(b.close) }));
-    const ema20Data = bars.map((b) => ({ time: t(b.time), value: finiteNum(b.ema20) }));
-    const ema50Data = bars.map((b) => ({ time: t(b.time), value: finiteNum(b.ema50) }));
-
-    const trendBars = bars.filter((b) => b.hmm_regime === "TRENDING");
-    const volBars = bars.filter((b) => b.hmm_regime === "MEAN_REVERT");
-    const crisisBars = bars.filter((b) => b.hmm_regime === "CRISIS");
-    const toOverlay = (overlayBars: typeof market.chart_data) => overlayBars.map((b) => ({ time: t(b.time), value: b.close }));
-
-    const volHistData = bars.map((b) => ({
-      time: t(b.time),
-      value: finiteNum(b.garch_vol),
-      color: finiteNum(b.close) > finiteNum(b.open) ? "rgba(34,197,94,0.40)" : "rgba(239,68,68,0.40)",
-    }));
-
-    const transitionData = bars.map((b, idx) => {
-      const prev = bars[idx - 1];
-      const isTransition = prev && ((b.hmm_regime && prev.hmm_regime !== b.hmm_regime) || (b.direction && prev.direction !== b.direction));
-      return {
-        time: t(b.time),
-        value: isTransition ? (volHistData[idx]?.value ?? 0) * 3 : 0,
-        color: "rgba(239,68,68,0.9)",
-      };
-    });
-
-    candleSeries.setData(candles);
-    ema20Series.setData(ema20Data);
-    ema50Series.setData(ema50Data);
-    trendOverlay.setData(toOverlay(trendBars));
-    volOverlay.setData(toOverlay(volBars));
-    crisisOverlay.setData(toOverlay(crisisBars));
-    volHistogram.setData(volHistData);
-    transitionSeries.setData(transitionData);
-
-    // Markers — only show if signals not suppressed
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const markers: any[] = [];
-
-    if (!entryQuality.signals_suppressed) {
-      bars.forEach((b, idx) => {
-        const prev = bars[idx - 1];
-        if (!prev) return;
-        const dirChanged = b.direction && prev.direction && b.direction !== prev.direction;
-        const hmmChanged = b.hmm_regime && prev.hmm_regime && b.hmm_regime !== prev.hmm_regime;
-        if (!dirChanged && !hmmChanged) return;
-
-        const dir = (b.direction ?? "").toUpperCase();
-        if (dir.includes("BULL")) {
-          markers.push({ time: t(b.time), position: "belowBar", color: C.bullish, shape: "arrowUp", text: "BULL REGIME", size: 1 });
-        } else if (dir.includes("BEAR")) {
-          markers.push({ time: t(b.time), position: "aboveBar", color: C.bearish, shape: "arrowDown", text: "BEAR REGIME", size: 1 });
-        } else if (b.hmm_regime === "CRISIS" || hmmChanged) {
-          markers.push({ time: t(b.time), position: "aboveBar", color: C.volatile, shape: "circle", text: "REGIME BREAK", size: 1 });
-        }
-      });
-    }
-
-    if (markers.length) createSeriesMarkers(candleSeries, markers);
+    chartRef.current = chart;
 
     const handleResize = () => {
       if (!containerRef.current) return;
       chart.applyOptions({ width: containerRef.current.clientWidth });
     };
     window.addEventListener("resize", handleResize);
-    return () => { window.removeEventListener("resize", handleResize); chart.remove(); };
-  }, [market, entryQuality.signals_suppressed]);
+
+    return () => {
+      window.removeEventListener("resize", handleResize);
+      chart.remove();
+      chartRef.current = null;
+      seriesRef.current = null;
+    };
+  }, []);
+
+  // Update series only — preserve viewport on TF/range refresh within same asset.
+  useEffect(() => {
+    const chart = chartRef.current;
+    if (!chart || !bars.length) return;
+
+    const prevKey = contextKeyRef.current;
+    const contextChanged = prevKey !== contextKey;
+    if (prevKey) {
+      const lr = chart.timeScale().getVisibleLogicalRange();
+      if (lr) viewportByContext.current[prevKey] = lr;
+    }
+
+    const isIntraday = typeof bars[0]?.time === "number";
+    chart.applyOptions({
+      timeScale: { timeVisible: isIntraday, secondsVisible: false },
+    });
+
+    applySeriesData(contextChanged);
+    contextKeyRef.current = contextKey;
+  }, [bars, contextKey, applySeriesData]);
 
   return (
     <div className="relative w-full" style={{ background: C.bg, fontFamily: "'IBM Plex Sans', sans-serif" }}>
@@ -669,7 +686,7 @@ export default function MainChart({ market }: { market: MarketPayload }) {
       >
         <div className="flex items-center gap-3">
           <span style={{ fontSize: 11, fontWeight: 700, color: C.t1, letterSpacing: "0.08em", fontFamily: "'IBM Plex Mono', monospace" }}>
-            {market.symbol?.replace("-", " / ") ?? "BTC / USD"}
+            {getAssetDisplayLabel(activeAsset)}
           </span>
           <span style={{ fontSize: 8, color: C.t3, background: C.surface, border: `1px solid ${C.border}`, padding: "1px 5px", letterSpacing: "0.1em" }}>
             {activeTF}

@@ -2,6 +2,7 @@
 
 import { C, regimeColor, statusColor, pnlColor } from "@/lib/colors";
 import { fmt, fmtPct, fmtUsd } from "@/lib/format";
+import { useTimeframeStore } from "@/state/stores/useTimeframeStore";
 import { useMarketStore } from "@/state/stores/useMarketStore";
 import { useRiskStore } from "@/state/stores/useRiskStore";
 import { usePortfolioStore } from "@/state/stores/usePortfolioStore";
@@ -47,6 +48,9 @@ function WsIndicator() {
 }
 
 export default function TopBar({ market }: { market: MarketPayload }) {
+  const activeAsset = useTimeframeStore((s) => s.activeAsset);
+  const activeTF = useTimeframeStore((s) => s.activeTimeframe);
+  const activeRange = useTimeframeStore((s) => s.activeRange);
   const state = market.market_state;
   const pf = useRiskStore((s) => s.propFirm);
   const totalPnl = usePortfolioStore((s) => s.totalPnl);
@@ -75,7 +79,12 @@ export default function TopBar({ market }: { market: MarketPayload }) {
           QT
         </span>
         <div className="h-3 w-px" style={{ background: C.border }} />
-        <TopMetric label="BTC" value={market.price != null ? fmtUsd(market.price, 0) : "--"} />
+        <TopMetric
+          label={activeAsset}
+          value={market.price != null ? fmtUsd(market.price, 0) : "--"}
+        />
+        <TopMetric label="TF" value={activeTF} />
+        <TopMetric label="RNG" value={activeRange} />
         <TopMetric label="REGIME" value={state?.market_regime ?? "--"} accent={rColor} />
         <TopMetric label="VOL" value={fmtPct(state?.volatility ?? market.volatility)} accent={C.volatile} />
         <TopMetric label="ADX" value={fmt(state?.adx)} accent={rColor} />

@@ -91,8 +91,11 @@ class OHLCVValidator:
             logger.error(report.summary())
             return df.copy(), report
 
-        working = self._ensure_normalized_columns(df)
-        working = self._ensure_datetime_index(working)
+        # Establish the DatetimeIndex *before* selecting OHLCV columns — otherwise
+        # the timestamp column is dropped and the frame keeps a RangeIndex (0..n),
+        # which serializes to chart time=0 and breaks lightweight-charts.
+        working = self._ensure_datetime_index(df)
+        working = self._ensure_normalized_columns(working)
 
         duplicate_mask = working.index.duplicated(keep=False)
         if duplicate_mask.any():
@@ -232,7 +235,10 @@ class OHLCVValidator:
     def _ensure_datetime_index(df: pd.DataFrame) -> pd.DataFrame:
         if "timestamp" in df.columns:
             out = df.set_index("timestamp")
-        else:
+        elif isinstance(df.index, pd.DatetimeIndex):
             out = df.copy()
-        out.index = pd.to_datetime(out.index, utc=True)
+        else:
+            raise ValueError("OHLCV frame has no timestamp column or DatetimeIndex")
+        out.index = pd.to_datetime(out.index, utc=True, errors="coerce")
+        out = out[~out.index.isna()]
         return out

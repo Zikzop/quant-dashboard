@@ -31,7 +31,17 @@ _HMM_ENGINE = HMMRegimeEngine()
 
 
 def _bar_time(ts: pd.Timestamp, is_intraday: bool) -> int | str:
-    return int(ts.timestamp()) if is_intraday else ts.strftime("%Y-%m-%d")
+    t = pd.Timestamp(ts)
+    if t.tzinfo is None:
+        t = t.tz_localize("UTC")
+    else:
+        t = t.tz_convert("UTC")
+    if is_intraday:
+        secs = int(t.timestamp())
+        if secs <= 0:
+            raise ValueError(f"Invalid bar timestamp: {ts!r}")
+        return secs
+    return t.strftime("%Y-%m-%d")
 
 
 def _build_chart_data(

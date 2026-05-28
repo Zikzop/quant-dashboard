@@ -266,10 +266,15 @@ class MarketDataAccess:
                 output_rows=report.output_rows,
             )
         # Return to the unified flat schema (timestamp column, RangeIndex).
-        out = cleaned.reset_index().rename(columns={"index": "timestamp"})
+        out = cleaned.reset_index()
+        if "timestamp" not in out.columns:
+            idx_name = cleaned.index.name or "index"
+            if idx_name in out.columns:
+                out = out.rename(columns={idx_name: "timestamp"})
         if "timestamp" not in out.columns and "Datetime" in out.columns:
             out = out.rename(columns={"Datetime": "timestamp"})
-        out["timestamp"] = pd.to_datetime(out["timestamp"], utc=True)
+        out["timestamp"] = pd.to_datetime(out["timestamp"], utc=True, errors="coerce")
+        out = out.dropna(subset=["timestamp"])
         return out[REQUIRED_COLUMNS].sort_values("timestamp").reset_index(drop=True)
 
 

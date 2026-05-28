@@ -51,6 +51,20 @@ def test_invalid_timeframe_and_symbol():
     assert c.get("/market/timeframe/1D?symbol=NOPE").status_code == 400
 
 
+def test_chart_bar_times_are_valid_unix():
+    """Regression: chart bars must carry real timestamps (not RangeIndex 0)."""
+    c = _client()
+    r = c.get("/market/timeframe/1H?symbol=GOLD&range=3M")
+    assert r.status_code == 200
+    chart = r.json().get("chart_data") or []
+    assert len(chart) >= 30
+    times = [b["time"] for b in chart]
+    assert all(isinstance(t, int) and t > 1_000_000_000 for t in times), (
+        f"invalid chart times sample: {times[:3]} ... {times[-3:]}"
+    )
+    assert len(set(times)) > len(times) // 2
+
+
 def test_multi_asset_switch():
     c = _client()
     btc = c.get("/market/timeframe/1D?symbol=BTC").json()

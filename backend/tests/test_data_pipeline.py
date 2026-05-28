@@ -88,6 +88,24 @@ class TestOHLCVValidator(unittest.TestCase):
         self.assertTrue(report.passed)
         self.assertTrue(clean.index.is_monotonic_increasing)
 
+    def test_flat_timestamp_column_becomes_datetime_index(self) -> None:
+        """Regression: timestamp must not be dropped before index assignment."""
+        idx = pd.date_range("2024-06-01", periods=10, freq="h", tz="UTC")
+        flat = pd.DataFrame(
+            {
+                "timestamp": idx,
+                "open": np.linspace(100, 110, 10),
+                "high": np.linspace(101, 111, 10),
+                "low": np.linspace(99, 109, 10),
+                "close": np.linspace(100.5, 110.5, 10),
+                "volume": np.ones(10) * 1000,
+            }
+        )
+        clean, report = OHLCVValidator().validate(flat, symbol="GC=F", interval="1h")
+        self.assertTrue(report.passed)
+        self.assertIsInstance(clean.index, pd.DatetimeIndex)
+        self.assertGreater(int(clean.index[0].timestamp()), 0)
+
 
 class TestParquetHandler(unittest.TestCase):
     def test_save_and_load(self) -> None:

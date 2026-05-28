@@ -694,7 +694,10 @@ export default function MainChart({ market }: { market: MarketPayload }) {
       }),
     };
     chart.priceScale("vol").applyOptions({ scaleMargins: { top: 0.85, bottom: 0 } });
-    markersRef.current = createSeriesMarkers(seriesRef.current.candle, []);
+    markersRef.current = createSeriesMarkers(
+      seriesRef.current.candle,
+      [],
+    ) as unknown as ReturnType<typeof createSeriesMarkers>;
     chartRef.current = chart;
 
     const applyWidth = () => {

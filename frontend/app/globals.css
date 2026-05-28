@@ -61,8 +61,18 @@ body {
 }
 
 @keyframes pulse-glow {
-  0%, 100% { opacity: 0.4; }
-  50% { opacity: 0.8; }
+  0%, 100% { opacity: 0.3; }
+  50% { opacity: 0.6; }
+}
+
+/* Calmer status dot pulse — institutional, not retail neon. */
+@keyframes soft-pulse {
+  0%, 100% { opacity: 0.5; }
+  50% { opacity: 0.85; }
+}
+
+.soft-pulse {
+  animation: soft-pulse 2.4s ease-in-out infinite;
 }
 
 button {

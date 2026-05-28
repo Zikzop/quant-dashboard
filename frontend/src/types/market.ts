@@ -36,6 +36,21 @@ export interface ChartBar {
   vol_regime?: string;
 }
 
+// Hidden-Markov regime transition contract (mirrors backend RegimeTransition).
+export interface RegimeTransitionPayload {
+  states: string[];
+  matrix: Record<string, Record<string, number>>;
+  counts?: Record<string, Record<string, number>>;
+  persistence: Record<string, number>;
+  expected_duration?: Record<string, number | null>;
+  stationary_distribution?: Record<string, number>;
+  instability_score: number;
+  is_unstable: boolean;
+  n_transitions?: number;
+  low_confidence?: boolean;
+  current_state?: string | null;
+}
+
 export interface CorrelationPayload {
   assets?: string[];
   matrix_labels?: string[];
@@ -68,13 +83,14 @@ export interface CorrelationPayload {
 
 export interface MarketPayload {
   symbol?: string;
+  asset_id?: string;
   timeframe?: string;
   price?: number;
   trend?: string;
   volatility?: number;
   signal?: string;
   signal_score?: number;
-  momentum?: string;
+  momentum?: number | string;
   confidence?: number;
   regime?: string;
   chart_data: ChartBar[];
@@ -87,12 +103,15 @@ export interface MarketPayload {
   trend_probability?: number;
   crisis_probability?: number;
   bull_probability?: number;
+  regime_transition?: RegimeTransitionPayload;
   var_95?: number;
   expected_shortfall?: number;
   max_drawdown?: number;
   risk_regime?: string;
   correlation?: CorrelationPayload;
   structure_regime?: string;
+  historical_range?: string;
+  display_bars?: number;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

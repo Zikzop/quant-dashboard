@@ -32,14 +32,12 @@ const PortfolioAnalytics = dynamic(() => import("../src/components/workspace/Por
 const LiveTerminal = dynamic(() => import("../src/components/workspace/LiveTerminal"), { ssr: false });
 
 import MTFRegimeMatrix from "@/components/mtf/MTFRegimeMatrix";
-import HistoricalRegimePanel from "@/components/mtf/HistoricalRegimePanel";
-import ProbabilityPanel from "../src/components/quant/ProbabilityPanel";
-import RiskPanel from "../src/components/quant/RiskPanel";
-import RegimePanel from "../src/components/quant/RegimePanel";
 import RegimeTimeline from "../src/components/quant/RegimeTimeline";
-import VolatilityPanel from "../src/components/quant/VolatilityPanel";
-import StructurePanel from "../src/components/quant/StructurePanel";
-import HeatmapPanel from "../src/components/quant/HeatmapPanel";
+import PrimaryDecisionLayer from "@/components/primary/PrimaryDecisionLayer";
+import AnalyticsLayer from "@/components/analytics/AnalyticsLayer";
+import ResearchLayer from "@/components/research/ResearchLayer";
+import { useDecision } from "@/hooks/useDecision";
+import type { MarketPayload } from "@/types/market";
 
 export default function Home() {
   const market = useMarketStore((s) => s.market);
@@ -125,48 +123,38 @@ export default function Home() {
   );
 }
 
-function ChartWorkspace({ market }: { market: any }) {
+function ChartWorkspace({ market }: { market: MarketPayload }) {
+  const decision = useDecision(market);
+
   return (
     <div className="h-full overflow-auto" style={{ background: "#0a0a0c" }}>
       <AssetSelector />
       <TimeframeSelector />
       <RangeSelector />
+
+      {/* LEVEL 1 — dominant primary decision layer */}
+      {decision && <PrimaryDecisionLayer decision={decision} />}
+
+      {/* CHART CENTER-STAGE + multi-timeframe matrix */}
       <div className="grid grid-cols-12 gap-px" style={{ background: "#1c1c20" }}>
         <div className="col-span-12 xl:col-span-9" style={{ background: "#080809" }}>
           <MainChart market={market} />
-          <div className="grid grid-cols-12 gap-px" style={{ background: "#1c1c20" }}>
-            <div className="col-span-12" style={{ background: "#080809" }}>
-              <RegimeTimeline market={market} />
-            </div>
-            <div className="col-span-6" style={{ background: "#080809" }}>
-              <VolatilityPanel market={market} />
-            </div>
-            <div className="col-span-6" style={{ background: "#080809" }}>
-              <StructurePanel market={market} />
-            </div>
-            <div className="col-span-12" style={{ background: "#080809" }}>
-              <HeatmapPanel market={market} />
-            </div>
-          </div>
+          <RegimeTimeline market={market} />
         </div>
-        <div className="col-span-12 xl:col-span-3 flex flex-col gap-px" style={{ background: "#1c1c20" }}>
-          <div style={{ background: "#080809" }}>
-            <MTFRegimeMatrix />
-          </div>
-          <div style={{ background: "#080809" }}>
-            <HistoricalRegimePanel />
-          </div>
-          <div style={{ background: "#080809" }}>
-            <ProbabilityPanel market={market} />
-          </div>
-          <div style={{ background: "#080809" }}>
-            <RiskPanel market={market} />
-          </div>
-          <div style={{ background: "#080809" }}>
-            <RegimePanel market={market} />
-          </div>
+        <div className="col-span-12 xl:col-span-3" style={{ background: "#080809" }}>
+          <MTFRegimeMatrix />
         </div>
       </div>
+
+      {/* LEVEL 2 — collapsible analytics */}
+      {decision && (
+        <div style={{ marginTop: 1 }}>
+          <AnalyticsLayer market={market} decision={decision} />
+        </div>
+      )}
+
+      {/* LEVEL 3 — research / diagnostics (hidden by default) */}
+      {decision && <ResearchLayer market={market} decision={decision} />}
     </div>
   );
 }

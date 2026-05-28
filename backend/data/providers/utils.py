@@ -16,6 +16,11 @@ def normalize_ohlcv_frame(df: pd.DataFrame) -> pd.DataFrame:
     rename_map = {
         "Date": "timestamp",
         "Datetime": "timestamp",
+        "datetime": "timestamp",
+        "date": "timestamp",
+        # Some pandas/yfinance versions return an unnamed DatetimeIndex, which
+        # reset_index() promotes to a column literally named "index".
+        "index": "timestamp",
         "Open": "open",
         "High": "high",
         "Low": "low",
@@ -23,6 +28,14 @@ def normalize_ohlcv_frame(df: pd.DataFrame) -> pd.DataFrame:
         "Volume": "volume",
     }
     data = data.reset_index().rename(columns=rename_map)
+
+    # Fallback: if no recognized name produced a timestamp column, promote the
+    # first datetime-typed column (robust to provider/version index naming).
+    if "timestamp" not in data.columns:
+        for col in data.columns:
+            if pd.api.types.is_datetime64_any_dtype(data[col]):
+                data = data.rename(columns={col: "timestamp"})
+                break
 
     for col in REQUIRED_COLUMNS:
         if col not in data.columns:

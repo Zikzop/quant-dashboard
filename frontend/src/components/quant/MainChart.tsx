@@ -23,6 +23,7 @@ import { sanitizeChartBars } from "@/lib/chart/sanitizeBars";
 import { buildChartSeries } from "@/lib/chart/buildSeriesData";
 import MTFAlignmentOverlay from "@/components/mtf/MTFAlignmentOverlay";
 import type { MarketPayload, EntryQuality } from "@/types/market";
+import type { DecisionState } from "@/engines/types";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // ENTRY QUALITY ENGINE — compute live trade quality from all available signals
@@ -192,14 +193,19 @@ function LegendPill({ color, label }: { color: string; label: string }) {
 // ENTRY QUALITY OVERLAY — real-time trade quality score on chart
 // ─────────────────────────────────────────────────────────────────────────────
 
-function EntryQualityOverlay({ quality }: { quality: EntryQuality }) {
+function EntryQualityOverlay({
+  quality,
+  decision,
+}: {
+  quality: EntryQuality;
+  decision?: DecisionState | null;
+}) {
   const ratingColors: Record<string, string> = {
     HIGH_QUALITY: C.bullish,
     ACCEPTABLE: C.cyan,
     LOW_EDGE: C.volatile,
     AVOID: C.critical,
   };
-  const color = ratingColors[quality.quality_rating] ?? C.neutral;
 
   const ratingLabels: Record<string, string> = {
     HIGH_QUALITY: "HIGH QUALITY SETUP",
@@ -207,6 +213,30 @@ function EntryQualityOverlay({ quality }: { quality: EntryQuality }) {
     LOW_EDGE: "LOW EDGE ENVIRONMENT",
     AVOID: "AVOID — SIGNALS SUPPRESSED",
   };
+
+  // When the calibrated decision engine is available, the on-chart verdict must
+  // agree with the Level-1 primary layer. Decision values override the legacy
+  // local heuristic; the factor breakdown below stays as supporting detail.
+  const decisionRatingMap: Record<string, EntryQuality["quality_rating"]> = {
+    HIGH: "HIGH_QUALITY",
+    ACCEPTABLE: "ACCEPTABLE",
+    LOW_EDGE: "LOW_EDGE",
+    AVOID: "AVOID",
+  };
+  const rating = decision ? decisionRatingMap[decision.entryQuality] : quality.quality_rating;
+  const score = decision ? decision.entryScore : quality.entry_score;
+  const confidence = decision ? decision.confidence : quality.confidence_score;
+  const suppressed = decision ? decision.suppressTrade : quality.signals_suppressed;
+  const warnings = decision
+    ? decision.headline
+    : quality.warnings;
+  const suppressionReasons = decision
+    ? decision.headline.length
+      ? decision.headline
+      : ["NO EXECUTABLE EDGE — LOW CALIBRATED CONVICTION"]
+    : quality.suppression_reasons;
+
+  const color = ratingColors[rating] ?? C.neutral;
 
   return (
     <div
@@ -221,18 +251,27 @@ function EntryQualityOverlay({ quality }: { quality: EntryQuality }) {
       }}
     >
       <div className="flex items-center justify-between mb-1.5">
-        <span style={{ fontSize: T.nano, color: C.t3, letterSpacing: TRACK.label }}>ENTRY QUALITY</span>
-        <RegimeDot color={color} pulse={quality.quality_rating === "HIGH_QUALITY"} />
+        <span style={{ fontSize: T.nano, color: C.t3, letterSpacing: TRACK.label }}>
+          ENTRY QUALITY{decision ? " · CALIBRATED" : ""}
+        </span>
+        <RegimeDot color={color} pulse={rating === "HIGH_QUALITY"} />
       </div>
 
       <div style={{ fontSize: T.lg, fontWeight: 700, color, lineHeight: 1.15, marginBottom: 6, letterSpacing: TRACK.display }}>
-        {ratingLabels[quality.quality_rating]}
+        {ratingLabels[rating]}
       </div>
 
       <div className="grid grid-cols-2 gap-x-2 gap-y-0.5 mb-2">
-        <StatRow label="SCORE" value={`${(quality.entry_score * 100).toFixed(0)}`} accent={color} />
-        <StatRow label="CONFIDENCE" value={fmtPct(quality.confidence_score)} accent={quality.confidence_score > 0.6 ? C.bullish : C.warning} />
+        <StatRow label="SCORE" value={`${(score * 100).toFixed(0)}`} accent={color} />
+        <StatRow label="CONFIDENCE" value={fmtPct(confidence)} accent={confidence > 0.6 ? C.bullish : C.warning} />
       </div>
+
+      {decision && (
+        <div className="grid grid-cols-2 gap-x-2 gap-y-0.5 mb-2">
+          <StatRow label="EXP EDGE" value={`${decision.expectedEdgePct >= 0 ? "+" : ""}${decision.expectedEdgePct.toFixed(2)}%`} accent={decision.expectedEdgePct > 0.02 ? C.bullish : decision.expectedEdgePct < -0.02 ? C.bearish : C.neutral} />
+          <StatRow label="UNCERTAINTY" value={decision.uncertaintyLevel} accent={decision.uncertaintyLevel === "LOW" ? C.bullish : decision.uncertaintyLevel === "MODERATE" ? C.cyan : decision.uncertaintyLevel === "HIGH" ? C.warning : C.danger} />
+        </div>
+      )}
 
       <Divider label="FACTORS" />
       <div className="space-y-1">
@@ -244,10 +283,10 @@ function EntryQualityOverlay({ quality }: { quality: EntryQuality }) {
         <ProbBar label="R/R QUAL" value={quality.risk_reward_quality} color={C.amber} />
       </div>
 
-      {quality.warnings.length > 0 && (
+      {warnings.length > 0 && (
         <>
           <Divider label="WARNINGS" />
-          {quality.warnings.map((w, i) => (
+          {warnings.map((w, i) => (
             <div key={i} style={{ fontSize: T.nano, color: C.danger, letterSpacing: "0.06em", lineHeight: 1.5, fontWeight: 600 }}>
               ⚠ {w}
             </div>
@@ -255,9 +294,9 @@ function EntryQualityOverlay({ quality }: { quality: EntryQuality }) {
         </>
       )}
 
-      {quality.signals_suppressed && (
+      {suppressed && (
         <div className="mt-1.5 px-1.5 py-1" style={{ background: "rgba(220,38,38,0.1)", borderLeft: `2px solid ${C.critical}` }}>
-          {quality.suppression_reasons.map((r, i) => (
+          {suppressionReasons.map((r, i) => (
             <div key={i} style={{ fontSize: T.pico, color: C.critical, letterSpacing: "0.05em", lineHeight: 1.5, fontWeight: 600 }}>{r}</div>
           ))}
         </div>
@@ -270,7 +309,13 @@ function EntryQualityOverlay({ quality }: { quality: EntryQuality }) {
 // REGIME INTELLIGENCE OVERLAY (enhanced)
 // ─────────────────────────────────────────────────────────────────────────────
 
-function RegimeIntelligenceOverlay({ market }: { market: MarketPayload }) {
+function RegimeIntelligenceOverlay({
+  market,
+  decision,
+}: {
+  market: MarketPayload;
+  decision?: DecisionState | null;
+}) {
   const state = market.market_state;
   const rColor = regimeColor(state?.market_regime ?? market.hmm_regime);
   const dColor = state?.direction?.toUpperCase().includes("BULL") ? C.bullish : state?.direction?.toUpperCase().includes("BEAR") ? C.bearish : C.neutral;
@@ -310,15 +355,31 @@ function RegimeIntelligenceOverlay({ market }: { market: MarketPayload }) {
         <StatRow label="+DI / −DI" value={`${fmt(state?.plus_di)} / ${fmt(state?.minus_di)}`} accent={C.t1} />
       </div>
 
-      <Divider label="HMM POSTERIOR" />
+      <Divider label={decision ? "HMM POSTERIOR · CALIBRATED" : "HMM POSTERIOR"} />
       <div className="space-y-[4px]">
-        <ProbBar label="MEAN-REV" value={probFraction(market.mean_revert_probability)} color={C.cyan} />
-        <ProbBar label="TRENDING" value={probFraction(market.trend_probability)} color={C.bullish} />
-        <ProbBar label="CRISIS" value={probFraction(market.crisis_probability)} color={C.crisis} />
-        {market.bull_probability != null && (
-          <ProbBar label="BULL" value={probFraction(market.bull_probability)} color={C.bullish} />
+        {decision ? (
+          <>
+            <ProbBar label="BULL" value={decision.probability.bull.calibrated} color={C.bullish} />
+            <ProbBar label="TRENDING" value={decision.probability.trend.calibrated} color={C.bullish} />
+            <ProbBar label="MEAN-REV" value={decision.probability.meanRevert.calibrated} color={C.cyan} />
+            <ProbBar label="CRISIS" value={decision.probability.crisis.calibrated} color={C.crisis} />
+          </>
+        ) : (
+          <>
+            <ProbBar label="MEAN-REV" value={probFraction(market.mean_revert_probability)} color={C.cyan} />
+            <ProbBar label="TRENDING" value={probFraction(market.trend_probability)} color={C.bullish} />
+            <ProbBar label="CRISIS" value={probFraction(market.crisis_probability)} color={C.crisis} />
+            {market.bull_probability != null && (
+              <ProbBar label="BULL" value={probFraction(market.bull_probability)} color={C.bullish} />
+            )}
+          </>
         )}
       </div>
+      {decision && (
+        <div style={{ fontSize: T.pico, color: C.t3, letterSpacing: "0.04em", marginTop: 5, lineHeight: 1.4 }}>
+          {decision.structuralRegime.replace(/_/g, " ")} · {decision.microRegime.replace(/_/g, " ")} · {decision.executionBias.replace(/_/g, " ")}
+        </div>
+      )}
     </div>
   );
 }
@@ -520,7 +581,13 @@ function viewportMatchesData(
   return overlap >= 1;
 }
 
-export default function MainChart({ market }: { market: MarketPayload }) {
+export default function MainChart({
+  market,
+  decision,
+}: {
+  market: MarketPayload;
+  decision?: DecisionState | null;
+}) {
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const seriesRef = useRef<ChartSeriesRefs | null>(null);
@@ -804,8 +871,8 @@ export default function MainChart({ market }: { market: MarketPayload }) {
         )}
         {hasData && (
           <>
-            <RegimeIntelligenceOverlay market={market} />
-            <EntryQualityOverlay quality={entryQuality} />
+            <RegimeIntelligenceOverlay market={market} decision={decision} />
+            <EntryQualityOverlay quality={entryQuality} decision={decision} />
             <VolatilityStateOverlay market={market} />
             <MTFAlignmentOverlay />
             <ExecutionQualityOverlay />

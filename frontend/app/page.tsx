@@ -138,7 +138,7 @@ function ChartWorkspace({ market }: { market: MarketPayload }) {
       {/* CHART CENTER-STAGE + multi-timeframe matrix */}
       <div className="grid grid-cols-12 gap-px" style={{ background: "#1c1c20" }}>
         <div className="col-span-12 xl:col-span-9" style={{ background: "#080809" }}>
-          <MainChart market={market} />
+          <MainChart market={market} decision={decision} />
           <RegimeTimeline market={market} />
         </div>
         <div className="col-span-12 xl:col-span-3" style={{ background: "#080809" }}>

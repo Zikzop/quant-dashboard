@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 
 import { C } from "@/lib/colors";
+import { T, TRACK, CHROME } from "@/lib/tokens";
 import { ASSET_IDS } from "@/lib/assets/registry";
 import { fetchAssets, type AssetInfo } from "@/lib/api";
 import { useTimeframeStore } from "@/state/stores/useTimeframeStore";
@@ -54,15 +55,15 @@ export default function AssetSelector() {
       style={{
         background: C.surface,
         borderBottom: `1px solid ${C.border}`,
-        height: 26,
+        height: CHROME.selector,
         fontFamily: "'IBM Plex Mono', monospace",
       }}
     >
       <div
-        className="flex items-center px-2 gap-1"
+        className="flex items-center px-3 gap-1"
         style={{ borderRight: `1px solid ${C.border}` }}
       >
-        <span style={{ fontSize: 8, color: C.t3, letterSpacing: "0.15em" }}>ASSET</span>
+        <span style={{ fontSize: T.nano, color: C.t3, letterSpacing: TRACK.label }}>ASSET</span>
       </div>
 
       {assets.map((a) => {
@@ -73,27 +74,41 @@ export default function AssetSelector() {
             key={a.asset_id}
             onClick={() => setActiveAsset(a.asset_id)}
             title={`${a.provider_symbol} · ${a.asset_class}`}
-            className="relative flex items-center gap-1 px-2.5 h-full transition-colors"
+            className="relative flex items-center gap-1.5 px-3.5 h-full transition-colors"
             style={{
               background: isActive ? C.surface2 : "transparent",
               borderRight: `1px solid ${C.border}`,
               borderBottom: isActive ? `2px solid ${cColor}` : "2px solid transparent",
-              color: isActive ? C.t1 : C.t3,
-              fontSize: 9,
+              color: isActive ? C.t1 : C.t2,
+              fontSize: T.sm,
               fontWeight: isActive ? 700 : 500,
               letterSpacing: "0.06em",
               cursor: "pointer",
             }}
+            onMouseEnter={(e) => {
+              if (!isActive) e.currentTarget.style.background = C.surface;
+            }}
+            onMouseLeave={(e) => {
+              if (!isActive) e.currentTarget.style.background = "transparent";
+            }}
           >
-            <div className="w-1 h-1 rounded-full" style={{ background: cColor }} />
+            <div
+              className="rounded-full transition-all"
+              style={{
+                width: isActive ? 6 : 5,
+                height: isActive ? 6 : 5,
+                background: cColor,
+                boxShadow: isActive ? `0 0 6px ${cColor}` : "none",
+              }}
+            />
             {a.asset_id}
           </button>
         );
       })}
 
       <div className="flex-1" />
-      <div className="flex items-center gap-2 px-3" style={{ borderLeft: `1px solid ${C.border}` }}>
-        <span style={{ fontSize: 8, color: C.t3, letterSpacing: "0.1em" }}>
+      <div className="flex items-center gap-2 px-3.5" style={{ borderLeft: `1px solid ${C.border}` }}>
+        <span style={{ fontSize: T.nano, color: C.t3, letterSpacing: "0.1em" }}>
           {assets.find((a) => a.asset_id === activeAsset)?.provider_symbol ?? activeAsset}
         </span>
       </div>

@@ -1,6 +1,7 @@
 "use client";
 
 import { C } from "@/lib/colors";
+import { T, TRACK, PANEL } from "@/lib/tokens";
 import { type ReactNode } from "react";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -33,18 +34,19 @@ export function Panel({
       }}
     >
       <div
-        className="flex items-center justify-between px-3 py-1.5"
+        className="flex items-center justify-between"
         style={{
           borderBottom: `1px solid ${C.border}`,
           background: C.surface,
+          padding: `${PANEL.headerPadY}px ${PANEL.headerPadX}px`,
         }}
       >
         <span
           style={{
-            fontSize: 9,
-            color: accent ?? C.t3,
-            letterSpacing: "0.2em",
-            fontWeight: 600,
+            fontSize: T.micro,
+            color: accent ?? C.t2,
+            letterSpacing: TRACK.label,
+            fontWeight: 700,
           }}
         >
           {label}
@@ -52,19 +54,21 @@ export function Panel({
         {tag && (
           <span
             style={{
-              fontSize: 8,
+              fontSize: T.nano,
               color: C.t3,
-              letterSpacing: "0.15em",
+              letterSpacing: "0.12em",
               background: C.bg,
               border: `1px solid ${C.border}`,
-              padding: "1px 5px",
+              padding: "1px 6px",
             }}
           >
             {tag}
           </span>
         )}
       </div>
-      <div className={noPad ? "" : "p-3"} style={{ flex: 1 }}>
+      <div
+        style={{ flex: 1, padding: noPad ? 0 : `${PANEL.padY}px ${PANEL.padX}px` }}
+      >
         {children}
       </div>
     </div>
@@ -89,19 +93,19 @@ export function StatRow({
   mono?: boolean;
 }) {
   return (
-    <div className="flex items-baseline justify-between py-[2px]">
-      <span style={{ fontSize: 10, color: C.t2, letterSpacing: "0.04em" }}>
+    <div className="flex items-baseline justify-between py-[3px]">
+      <span style={{ fontSize: T.sm, color: C.t2, letterSpacing: "0.04em" }}>
         {label}
       </span>
       <div className="flex items-baseline gap-1">
-        {sub && <span style={{ fontSize: 8, color: C.t3 }}>{sub}</span>}
+        {sub && <span style={{ fontSize: T.nano, color: C.t3 }}>{sub}</span>}
         <span
           style={{
-            fontSize: 11,
+            fontSize: T.base,
             fontFamily: mono ? "'IBM Plex Mono', monospace" : "inherit",
             fontWeight: 600,
             color: accent ?? C.t1,
-            letterSpacing: "0.02em",
+            letterSpacing: TRACK.value,
           }}
         >
           {value}
@@ -131,19 +135,19 @@ export function StatCell({
       style={{
         background: C.surface,
         border: `1px solid ${C.border}`,
-        padding: "6px 8px",
+        padding: "7px 9px",
       }}
     >
-      <div style={{ fontSize: 8, color: C.t3, letterSpacing: "0.15em", marginBottom: 2 }}>
+      <div style={{ fontSize: T.nano, color: C.t3, letterSpacing: "0.12em", marginBottom: 3 }}>
         {label}
       </div>
       <div
         style={{
-          fontSize: large ? 16 : 12,
+          fontSize: large ? T.xl : T.md,
           fontFamily: "'IBM Plex Mono', monospace",
           fontWeight: 700,
           color: accent ?? C.t1,
-          letterSpacing: "-0.01em",
+          letterSpacing: TRACK.display,
         }}
       >
         {value}
@@ -172,16 +176,16 @@ export function ProgressBar({
     <div className="flex items-center gap-2">
       <span
         style={{
-          fontSize: 9,
+          fontSize: T.micro,
           color: C.t2,
-          width: 72,
+          width: 76,
           letterSpacing: "0.04em",
           flexShrink: 0,
         }}
       >
         {label}
       </span>
-      <div className="flex-1 h-[3px]" style={{ background: C.border }}>
+      <div className="flex-1 h-[4px]" style={{ background: C.border }}>
         <div
           className="h-full transition-all duration-300"
           style={{ width: `${pct * 100}%`, background: color }}
@@ -189,10 +193,11 @@ export function ProgressBar({
       </div>
       <span
         style={{
-          fontSize: 10,
+          fontSize: T.sm,
           fontFamily: "'IBM Plex Mono', monospace",
+          fontWeight: 600,
           color: C.t1,
-          width: 36,
+          width: 38,
           textAlign: "right",
         }}
       >
@@ -224,12 +229,12 @@ export function ProximityBar({
   return (
     <div>
       <div className="flex items-baseline justify-between mb-1">
-        <span style={{ fontSize: 9, color: C.t2, letterSpacing: "0.04em" }}>{label}</span>
+        <span style={{ fontSize: T.micro, color: C.t2, letterSpacing: "0.04em" }}>{label}</span>
         <span
           style={{
-            fontSize: 10,
+            fontSize: T.sm,
             fontFamily: "'IBM Plex Mono', monospace",
-            fontWeight: 600,
+            fontWeight: 700,
             color: inDanger ? C.critical : color,
           }}
         >
@@ -281,7 +286,7 @@ export function StatusBadge({
         )}
         <div className="w-1.5 h-1.5 rounded-full" style={{ background: color }} />
       </div>
-      <span style={{ fontSize: 9, color, letterSpacing: "0.1em", fontWeight: 600 }}>
+      <span style={{ fontSize: T.micro, color, letterSpacing: "0.1em", fontWeight: 700 }}>
         {label}
       </span>
     </div>
@@ -312,7 +317,7 @@ export function KillSwitch({
         padding: "5px 8px",
       }}
     >
-      <span style={{ fontSize: 9, color: C.t2, letterSpacing: "0.06em" }}>{label}</span>
+      <span style={{ fontSize: T.micro, color: C.t2, letterSpacing: "0.06em" }}>{label}</span>
       <StatusBadge label={statusText} color={color} pulse={triggered} />
     </div>
   );
@@ -324,10 +329,10 @@ export function KillSwitch({
 
 export function Divider({ label }: { label?: string }) {
   return (
-    <div className="flex items-center gap-2 my-1">
+    <div className="flex items-center gap-2 my-2">
       <div className="flex-1 h-px" style={{ background: C.border }} />
       {label && (
-        <span style={{ fontSize: 8, color: C.t3, letterSpacing: "0.15em" }}>{label}</span>
+        <span style={{ fontSize: T.nano, color: C.t3, letterSpacing: TRACK.label }}>{label}</span>
       )}
       <div className="flex-1 h-px" style={{ background: C.border }} />
     </div>
@@ -346,7 +351,7 @@ export function MiniTable({
   rows: Array<{ cells: Array<{ value: string; accent?: string }>; highlight?: boolean }>;
 }) {
   return (
-    <table className="w-full border-collapse" style={{ fontSize: 10 }}>
+    <table className="w-full border-collapse" style={{ fontSize: T.sm }}>
       <thead>
         <tr>
           {headers.map((h) => (
@@ -355,10 +360,10 @@ export function MiniTable({
               className="text-left py-1 px-1"
               style={{
                 color: C.t3,
-                fontSize: 8,
+                fontSize: T.nano,
                 letterSpacing: "0.12em",
                 borderBottom: `1px solid ${C.border}`,
-                fontWeight: 500,
+                fontWeight: 600,
               }}
             >
               {h}
@@ -467,7 +472,7 @@ export function AlertStrip({
         borderLeft: `2px solid ${col}`,
       }}
     >
-      <span style={{ fontSize: 9, color: col, letterSpacing: "0.06em", fontWeight: 600 }}>
+      <span style={{ fontSize: T.micro, color: col, letterSpacing: "0.06em", fontWeight: 700 }}>
         {text}
       </span>
     </div>

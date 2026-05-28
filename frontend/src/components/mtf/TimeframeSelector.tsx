@@ -1,6 +1,7 @@
 "use client";
 
 import { C, regimeColor } from "@/lib/colors";
+import { T, TRACK, CHROME } from "@/lib/tokens";
 import { useTimeframeStore } from "@/state/stores/useTimeframeStore";
 import { TIMEFRAMES, TF_LABELS, TF_ROLE, type Timeframe } from "@/types/market";
 
@@ -26,15 +27,15 @@ export default function TimeframeSelector() {
       style={{
         background: C.surface,
         borderBottom: `1px solid ${C.border}`,
-        height: 26,
+        height: CHROME.selector,
         fontFamily: "'IBM Plex Mono', monospace",
       }}
     >
       <div
-        className="flex items-center px-2 gap-1"
+        className="flex items-center px-3 gap-1"
         style={{ borderRight: `1px solid ${C.border}` }}
       >
-        <span style={{ fontSize: 8, color: C.t3, letterSpacing: "0.15em" }}>TF</span>
+        <span style={{ fontSize: T.nano, color: C.t3, letterSpacing: TRACK.label }}>TF</span>
       </div>
 
       {TIMEFRAMES.map((tf) => {
@@ -47,21 +48,21 @@ export default function TimeframeSelector() {
           <button
             key={tf}
             onClick={() => setActive(tf)}
-            className="relative flex items-center gap-1 px-2.5 h-full transition-colors"
+            className="relative flex items-center gap-1.5 px-3 h-full transition-colors"
             style={{
               background: isActive ? C.surface2 : "transparent",
               borderRight: `1px solid ${C.border}`,
               borderBottom: isActive ? `2px solid ${roleColor}` : "2px solid transparent",
-              color: isActive ? C.t1 : C.t3,
-              fontSize: 9,
+              color: isActive ? C.t1 : C.t2,
+              fontSize: T.micro,
               fontWeight: isActive ? 700 : 500,
               letterSpacing: "0.06em",
               cursor: "pointer",
             }}
           >
             <div
-              className="w-1 h-1 rounded-full"
-              style={{ background: rColor }}
+              className="rounded-full"
+              style={{ width: 5, height: 5, background: rColor }}
             />
             {tf}
           </button>
@@ -71,20 +72,20 @@ export default function TimeframeSelector() {
       <div className="flex-1" />
 
       <div
-        className="flex items-center gap-2 px-3"
+        className="flex items-center gap-2 px-3.5"
         style={{ borderLeft: `1px solid ${C.border}` }}
       >
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-1.5">
           <div className="w-1.5 h-1.5 rounded-full" style={{ background: alignColor }} />
-          <span style={{ fontSize: 8, color: alignColor, letterSpacing: "0.1em", fontWeight: 700 }}>
+          <span style={{ fontSize: T.nano, color: alignColor, letterSpacing: "0.1em", fontWeight: 700 }}>
             {alignment.state}
           </span>
         </div>
-        <span style={{ fontSize: 8, color: C.t3 }}>
+        <span style={{ fontSize: T.nano, color: C.t3 }}>
           {alignment.aligned_count}/{alignment.total}
         </span>
         {alignment.macro_micro_divergence && (
-          <span style={{ fontSize: 7, color: C.danger, letterSpacing: "0.06em" }}>
+          <span style={{ fontSize: T.pico, color: C.danger, letterSpacing: "0.06em", fontWeight: 700 }}>
             HTF/LTF DIV
           </span>
         )}

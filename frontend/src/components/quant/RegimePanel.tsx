@@ -1,6 +1,7 @@
 "use client";
 
 import { C, regimeColor } from "@/lib/colors";
+import { T } from "@/lib/tokens";
 import { Panel, StatRow, StatusBadge, Divider } from "@/components/ui/primitives";
 
 export default function RegimePanel({ market }: any) {
@@ -12,7 +13,7 @@ export default function RegimePanel({ market }: any) {
     <Panel label="REGIME STATE" accent={regimeColor(marketRegime)}>
       <div className="space-y-2">
         <div>
-          <div style={{ fontSize: 8, color: C.t3, letterSpacing: "0.12em", marginBottom: 2 }}>MARKET REGIME</div>
+          <div style={{ fontSize: T.nano, color: C.t3, letterSpacing: "0.12em", marginBottom: 4 }}>MARKET REGIME</div>
           <StatusBadge label={marketRegime} color={regimeColor(marketRegime)} pulse />
         </div>
         <Divider />

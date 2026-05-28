@@ -1,6 +1,7 @@
 "use client";
 
 import { C, regimeColor } from "@/lib/colors";
+import { T } from "@/lib/tokens";
 import { fmt, fmtPct } from "@/lib/format";
 import { Panel, StatRow, StatCell, Divider, ProgressBar, AlertStrip } from "@/components/ui/primitives";
 import { useTimeframeStore } from "@/state/stores/useTimeframeStore";
@@ -55,17 +56,17 @@ export default function HistoricalRegimePanel() {
                 }}
               >
                 <div className="flex items-center justify-between mb-1">
-                  <span style={{ fontSize: 9, fontWeight: 700, color: rsColor, letterSpacing: "0.04em" }}>
+                  <span style={{ fontSize: T.micro, fontWeight: 700, color: rsColor, letterSpacing: "0.04em" }}>
                     {rs.regime.replace(/_/g, " ")}
                     {isCurrentRegime && (
-                      <span style={{ fontSize: 7, color: C.t3, marginLeft: 4 }}>CURRENT</span>
+                      <span style={{ fontSize: T.pico, color: C.t3, marginLeft: 5, letterSpacing: "0.1em" }}>CURRENT</span>
                     )}
                   </span>
-                  <span style={{ fontSize: 8, color: C.t3, fontFamily: "'IBM Plex Mono', monospace" }}>
+                  <span style={{ fontSize: T.nano, color: C.t3, fontFamily: "'IBM Plex Mono', monospace" }}>
                     {rs.occurrences}x
                   </span>
                 </div>
-                <div className="grid grid-cols-4 gap-x-2" style={{ fontSize: 8 }}>
+                <div className="grid grid-cols-4 gap-x-2" style={{ fontSize: T.nano }}>
                   <div>
                     <span style={{ color: C.t3 }}>WR </span>
                     <span style={{
@@ -98,11 +99,11 @@ export default function HistoricalRegimePanel() {
                   </div>
                 </div>
                 {rs.transition_to.length > 0 && (
-                  <div className="flex items-center gap-2 mt-1">
-                    <span style={{ fontSize: 7, color: C.t3, letterSpacing: "0.06em" }}>NEXT →</span>
+                  <div className="flex items-center gap-2 mt-1.5">
+                    <span style={{ fontSize: T.pico, color: C.t3, letterSpacing: "0.06em" }}>NEXT →</span>
                     {rs.transition_to.slice(0, 3).map((t) => (
                       <span key={t.regime} style={{
-                        fontSize: 7, fontFamily: "'IBM Plex Mono', monospace",
+                        fontSize: T.pico, fontFamily: "'IBM Plex Mono', monospace",
                         color: regimeColor(t.regime),
                       }}>
                         {t.regime.replace(/_/g, " ")} {(t.probability * 100).toFixed(0)}%
@@ -128,7 +129,7 @@ export default function HistoricalRegimePanel() {
       )}
 
       <Divider label="REGIME TIMELINE" />
-      <div className="flex gap-px overflow-hidden" style={{ height: 12 }}>
+      <div className="flex gap-px overflow-hidden" style={{ height: 14 }}>
         {ctx.regime_history.slice(-30).map((h, i) => (
           <div
             key={i}

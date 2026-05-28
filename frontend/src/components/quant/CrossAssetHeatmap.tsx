@@ -1,5 +1,8 @@
 "use client";
 
+import { C } from "@/lib/colors";
+import { T, TRACK } from "@/lib/tokens";
+
 interface CorrelationPayload {
   assets?: string[];
   matrix_labels?: string[];
@@ -55,11 +58,27 @@ export default function CrossAssetHeatmap({
 }) {
   if (!correlation?.matrix_labels?.length) {
     return (
-      <p className="text-zinc-500 text-sm">
+      <p style={{ fontSize: T.sm, color: C.t3, letterSpacing: "0.04em" }}>
         Correlation engine data unavailable.
       </p>
     );
   }
+
+  const summaryCard = (label: string, value: string, accent: string, sub?: string) => (
+    <div
+      style={{
+        background: C.surface,
+        border: `1px solid ${C.border}`,
+        padding: "7px 9px",
+      }}
+    >
+      <span style={{ fontSize: T.nano, color: C.t3, letterSpacing: TRACK.label }}>{label}</span>
+      <p style={{ fontSize: T.md, fontWeight: 700, color: accent, marginTop: 3, letterSpacing: TRACK.value }}>
+        {value}
+        {sub && <span style={{ fontSize: T.nano, color: C.t3, marginLeft: 5, fontWeight: 500 }}>{sub}</span>}
+      </p>
+    </div>
+  );
 
   const labels = correlation.matrix_labels;
   const matrix = correlation.matrix_values ?? [];
@@ -69,43 +88,22 @@ export default function CrossAssetHeatmap({
   const cells = correlation.heatmap_cells ?? [];
 
   return (
-    <div className="space-y-5">
-      <div className="grid grid-cols-1 xl:grid-cols-3 gap-3 text-xs uppercase tracking-[0.2em]">
-        <div className="bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-2">
-          <span className="text-zinc-500">Cov Instability</span>
-          <p className="text-orange-400 font-bold mt-1">
-            {instability?.regime ?? "--"}{" "}
-            <span className="text-zinc-400 text-[10px]">
-              ({instability?.score?.toFixed(3) ?? "--"})
-            </span>
-          </p>
-        </div>
-        <div className="bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-2">
-          <span className="text-zinc-500">Regime Shift</span>
-          <p className="text-cyan-400 font-bold mt-1">
-            {shift?.sensitivity ?? "--"}{" "}
-            <span className="text-zinc-400 text-[10px]">
-              ({shift?.shift_magnitude?.toFixed(3) ?? "--"})
-            </span>
-          </p>
-        </div>
-        <div className="bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-2">
-          <span className="text-zinc-500">HMM Regime</span>
-          <p className="text-yellow-300 font-bold mt-1">
-            {shift?.current_regime ?? "--"}
-          </p>
-        </div>
+    <div className="space-y-4" style={{ fontFamily: "'IBM Plex Sans', system-ui, sans-serif" }}>
+      <div className="grid grid-cols-1 xl:grid-cols-3 gap-2">
+        {summaryCard("COV INSTABILITY", instability?.regime ?? "--", C.volatile, `(${instability?.score?.toFixed(3) ?? "--"})`)}
+        {summaryCard("REGIME SHIFT", shift?.sensitivity ?? "--", C.cyan, `(${shift?.shift_magnitude?.toFixed(3) ?? "--"})`)}
+        {summaryCard("HMM REGIME", shift?.current_regime ?? "--", C.amber)}
       </div>
 
       <div className="overflow-x-auto">
         <table className="w-full min-w-[520px] border-collapse text-center">
           <thead>
             <tr>
-              <th className="p-2 text-zinc-500 text-xs" />
+              <th style={{ padding: 6 }} />
               {labels.map((label) => (
                 <th
                   key={label}
-                  className="p-2 text-zinc-400 text-xs font-mono"
+                  style={{ padding: 6, fontSize: T.nano, color: C.t3, fontFamily: "'IBM Plex Mono', monospace", letterSpacing: "0.08em" }}
                 >
                   {label}
                 </th>
@@ -115,22 +113,23 @@ export default function CrossAssetHeatmap({
           <tbody>
             {labels.map((rowLabel, rowIdx) => (
               <tr key={rowLabel}>
-                <td className="p-2 text-zinc-400 text-xs font-mono text-left">
+                <td style={{ padding: 6, fontSize: T.nano, color: C.t2, fontFamily: "'IBM Plex Mono', monospace", textAlign: "left", letterSpacing: "0.06em" }}>
                   {rowLabel}
                 </td>
                 {labels.map((_, colIdx) => {
                   const corr = matrix[rowIdx]?.[colIdx] ?? null;
                   const z = zMatrix[rowIdx]?.[colIdx] ?? 0;
                   return (
-                    <td key={`${rowLabel}-${colIdx}`} className="p-1">
+                    <td key={`${rowLabel}-${colIdx}`} style={{ padding: 2 }}>
                       <div
-                        className="rounded-md px-1 py-2 border border-zinc-800"
                         style={{
                           background: cellColor(z, "zscore"),
+                          border: `1px solid ${C.border}`,
+                          padding: "6px 4px",
                         }}
                         title={`ρ=${corr ?? "--"} | z=${z.toFixed(2)}`}
                       >
-                        <span className="text-[10px] font-mono text-zinc-100">
+                        <span style={{ fontSize: T.micro, fontFamily: "'IBM Plex Mono', monospace", color: C.t1, fontWeight: 600 }}>
                           {corr != null ? corr.toFixed(2) : "--"}
                         </span>
                       </div>
@@ -143,27 +142,32 @@ export default function CrossAssetHeatmap({
         </table>
       </div>
 
-      <div className="grid grid-cols-2 xl:grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 xl:grid-cols-4 gap-2">
         {cells.map((cell) => {
           const positive = cell.daily_return_pct >= 0;
           return (
             <div
               key={cell.asset}
-              className="bg-zinc-900 rounded-xl p-4 border border-zinc-800"
+              style={{ background: C.surface, border: `1px solid ${C.border}`, padding: "9px 11px" }}
             >
-              <p className="text-zinc-500 text-sm">{cell.asset}</p>
+              <p style={{ fontSize: T.nano, color: C.t3, letterSpacing: TRACK.label }}>{cell.asset}</p>
               <p
-                className={`text-xl font-bold mt-1 ${
-                  positive ? "text-green-400" : "text-red-400"
-                }`}
+                style={{
+                  fontSize: T.lg,
+                  fontWeight: 700,
+                  marginTop: 3,
+                  fontFamily: "'IBM Plex Mono', monospace",
+                  color: positive ? C.bullish : C.bearish,
+                  letterSpacing: TRACK.display,
+                }}
               >
                 {positive ? "+" : ""}
                 {cell.daily_return_pct.toFixed(2)}%
               </p>
-              <p className="text-[10px] text-zinc-500 mt-2 font-mono">
+              <p style={{ fontSize: T.nano, color: C.t3, marginTop: 6, fontFamily: "'IBM Plex Mono', monospace" }}>
                 β BTC {cell.beta_vs_btc.toFixed(2)}
               </p>
-              <p className="text-[10px] text-cyan-400 font-mono">
+              <p style={{ fontSize: T.nano, color: C.cyan, fontFamily: "'IBM Plex Mono', monospace" }}>
                 ρz BTC {cell.correlation_zscore_vs_btc.toFixed(2)}
               </p>
             </div>
@@ -172,22 +176,19 @@ export default function CrossAssetHeatmap({
       </div>
 
       {shift?.largest_shifts?.length ? (
-        <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-4">
-          <p className="text-zinc-500 text-xs uppercase tracking-[0.2em] mb-3">
-            Regime-Sensitive Correlation Shifts
+        <div style={{ background: C.surface, border: `1px solid ${C.border}`, padding: "11px 13px" }}>
+          <p style={{ fontSize: T.nano, color: C.t3, letterSpacing: TRACK.label, marginBottom: 10 }}>
+            REGIME-SENSITIVE CORRELATION SHIFTS
           </p>
-          <div className="space-y-2">
+          <div className="space-y-1.5">
             {shift.largest_shifts.map((item) => (
               <div
                 key={item.pair}
-                className="flex justify-between text-sm font-mono"
+                className="flex justify-between"
+                style={{ fontSize: T.sm, fontFamily: "'IBM Plex Mono', monospace" }}
               >
-                <span className="text-zinc-400">{item.pair}</span>
-                <span
-                  className={
-                    item.delta >= 0 ? "text-green-400" : "text-red-400"
-                  }
-                >
+                <span style={{ color: C.t2 }}>{item.pair}</span>
+                <span style={{ color: item.delta >= 0 ? C.bullish : C.bearish, fontWeight: 600 }}>
                   {item.delta >= 0 ? "+" : ""}
                   {item.delta.toFixed(3)}
                 </span>

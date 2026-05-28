@@ -1,6 +1,7 @@
 "use client";
 
 import { C, regimeColor } from "@/lib/colors";
+import { T, TRACK, PANEL } from "@/lib/tokens";
 
 export default function RegimeTimeline({ market }: any) {
   const currentHmm = market.hmm_regime ?? "";
@@ -22,13 +23,13 @@ export default function RegimeTimeline({ market }: any) {
       }}
     >
       <div
-        className="px-3 py-1"
         style={{
           borderBottom: `1px solid ${C.border}`,
           background: C.surface,
+          padding: `${PANEL.headerPadY}px ${PANEL.headerPadX}px`,
         }}
       >
-        <span style={{ fontSize: 8, color: C.t3, letterSpacing: "0.2em" }}>REGIME TIMELINE</span>
+        <span style={{ fontSize: T.micro, color: C.t2, letterSpacing: TRACK.label, fontWeight: 700 }}>REGIME TIMELINE</span>
       </div>
       <div className="flex">
         {regimes.map((r) => {
@@ -37,7 +38,7 @@ export default function RegimeTimeline({ market }: any) {
           return (
             <div
               key={r.key}
-              className="flex-1 py-2 text-center"
+              className="flex-1 py-2.5 text-center"
               style={{
                 borderRight: `1px solid ${C.border}`,
                 background: isActive ? `${col}15` : "transparent",
@@ -46,7 +47,7 @@ export default function RegimeTimeline({ market }: any) {
             >
               <span
                 style={{
-                  fontSize: 9,
+                  fontSize: T.micro,
                   fontWeight: isActive ? 700 : 500,
                   color: isActive ? col : C.t3,
                   letterSpacing: "0.08em",

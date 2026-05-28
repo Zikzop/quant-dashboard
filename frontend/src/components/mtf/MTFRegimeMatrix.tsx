@@ -1,6 +1,7 @@
 "use client";
 
 import { C, regimeColor } from "@/lib/colors";
+import { T } from "@/lib/tokens";
 import { fmt, fmtPct } from "@/lib/format";
 import { Panel, Divider, StatusBadge, AlertStrip } from "@/components/ui/primitives";
 import { useTimeframeStore } from "@/state/stores/useTimeframeStore";
@@ -21,51 +22,51 @@ function TFRow({ r }: { r: TimeframeRegime }) {
 
   return (
     <div
-      className="flex items-center py-[3px]"
+      className="flex items-center py-[4px]"
       style={{ borderBottom: `1px solid ${C.border}` }}
     >
-      <div className="flex items-center gap-1" style={{ width: 44, flexShrink: 0 }}>
-        <div className="w-1 h-3" style={{ background: roleColor }} />
-        <span style={{ fontSize: 9, fontFamily: "'IBM Plex Mono', monospace", fontWeight: 700, color: C.t1 }}>
+      <div className="flex items-center gap-1.5" style={{ width: 48, flexShrink: 0 }}>
+        <div className="w-1 h-3.5" style={{ background: roleColor }} />
+        <span style={{ fontSize: T.micro, fontFamily: "'IBM Plex Mono', monospace", fontWeight: 700, color: C.t1 }}>
           {r.timeframe}
         </span>
       </div>
 
-      <div style={{ width: 70, flexShrink: 0 }}>
-        <span style={{ fontSize: 8, fontWeight: 700, color: rColor, letterSpacing: "0.04em" }}>
+      <div style={{ width: 76, flexShrink: 0 }}>
+        <span style={{ fontSize: T.nano, fontWeight: 700, color: rColor, letterSpacing: "0.04em" }}>
           {r.regime.replace(/_/g, " ")}
         </span>
       </div>
 
-      <div style={{ width: 48, flexShrink: 0 }}>
-        <span style={{ fontSize: 8, color: dColor, fontWeight: 600 }}>
+      <div style={{ width: 52, flexShrink: 0 }}>
+        <span style={{ fontSize: T.nano, color: dColor, fontWeight: 600 }}>
           {r.direction}
         </span>
       </div>
 
-      <div style={{ width: 42, flexShrink: 0 }}>
-        <span style={{ fontSize: 8, fontFamily: "'IBM Plex Mono', monospace", color: rColor }}>
+      <div style={{ width: 46, flexShrink: 0 }}>
+        <span style={{ fontSize: T.nano, fontFamily: "'IBM Plex Mono', monospace", color: rColor }}>
           {r.trend_strength}
         </span>
       </div>
 
-      <div style={{ width: 30, flexShrink: 0, textAlign: "right" }}>
-        <span style={{ fontSize: 8, fontFamily: "'IBM Plex Mono', monospace", color: C.t2 }}>
+      <div style={{ width: 32, flexShrink: 0, textAlign: "right" }}>
+        <span style={{ fontSize: T.nano, fontFamily: "'IBM Plex Mono', monospace", color: C.t2 }}>
           {fmt(r.adx, 0)}
         </span>
       </div>
 
-      <div className="flex-1 px-1">
-        <div className="flex gap-px h-[4px]">
+      <div className="flex-1 px-1.5">
+        <div className="flex gap-px h-[5px]">
           <div style={{ width: `${r.trend_probability * 100}%`, background: C.bullish, minWidth: 1 }} />
           <div style={{ width: `${r.mean_revert_probability * 100}%`, background: C.cyan, minWidth: 1 }} />
           <div style={{ width: `${r.crisis_probability * 100}%`, background: C.danger, minWidth: 1 }} />
         </div>
       </div>
 
-      <div style={{ width: 28, textAlign: "right", flexShrink: 0 }}>
+      <div style={{ width: 32, textAlign: "right", flexShrink: 0 }}>
         <span style={{
-          fontSize: 8, fontFamily: "'IBM Plex Mono', monospace",
+          fontSize: T.nano, fontFamily: "'IBM Plex Mono', monospace", fontWeight: 600,
           color: r.confidence > 0.7 ? C.bullish : r.confidence > 0.4 ? C.warning : C.danger,
         }}>
           {(r.confidence * 100).toFixed(0)}%
@@ -92,14 +93,14 @@ export default function MTFRegimeMatrix() {
       tag={`${alignment.state} ${alignment.aligned_count}/${alignment.total}`}
     >
       {/* Header */}
-      <div className="flex items-center py-[2px] mb-1" style={{ borderBottom: `1px solid ${C.borderMid}` }}>
-        <span style={{ width: 44, fontSize: 7, color: C.t3, letterSpacing: "0.1em" }}>TF</span>
-        <span style={{ width: 70, fontSize: 7, color: C.t3, letterSpacing: "0.1em" }}>REGIME</span>
-        <span style={{ width: 48, fontSize: 7, color: C.t3, letterSpacing: "0.1em" }}>DIR</span>
-        <span style={{ width: 42, fontSize: 7, color: C.t3, letterSpacing: "0.1em" }}>STR</span>
-        <span style={{ width: 30, fontSize: 7, color: C.t3, letterSpacing: "0.1em", textAlign: "right" }}>ADX</span>
-        <span className="flex-1 px-1" style={{ fontSize: 7, color: C.t3, letterSpacing: "0.1em" }}>PROB</span>
-        <span style={{ width: 28, fontSize: 7, color: C.t3, letterSpacing: "0.1em", textAlign: "right" }}>CONF</span>
+      <div className="flex items-center py-[3px] mb-1" style={{ borderBottom: `1px solid ${C.borderMid}` }}>
+        <span style={{ width: 48, fontSize: T.pico, color: C.t3, letterSpacing: "0.1em" }}>TF</span>
+        <span style={{ width: 76, fontSize: T.pico, color: C.t3, letterSpacing: "0.1em" }}>REGIME</span>
+        <span style={{ width: 52, fontSize: T.pico, color: C.t3, letterSpacing: "0.1em" }}>DIR</span>
+        <span style={{ width: 46, fontSize: T.pico, color: C.t3, letterSpacing: "0.1em" }}>STR</span>
+        <span style={{ width: 32, fontSize: T.pico, color: C.t3, letterSpacing: "0.1em", textAlign: "right" }}>ADX</span>
+        <span className="flex-1 px-1.5" style={{ fontSize: T.pico, color: C.t3, letterSpacing: "0.1em" }}>PROB</span>
+        <span style={{ width: 32, fontSize: T.pico, color: C.t3, letterSpacing: "0.1em", textAlign: "right" }}>CONF</span>
       </div>
 
       {reversed.map((r) => (
@@ -108,19 +109,19 @@ export default function MTFRegimeMatrix() {
 
       <Divider label="ALIGNMENT" />
 
-      <div className="flex items-center gap-2 mb-1">
+      <div className="flex items-center gap-2 mb-1.5">
         <StatusBadge label={alignment.state} color={alignColor} pulse={alignment.state === "CONFLICT"} />
         <div className="flex-1" />
         <div className="flex items-center gap-2">
-          <span style={{ fontSize: 8, color: C.t3 }}>HTF</span>
-          <span style={{ fontSize: 8, fontWeight: 700, color: dirColor(alignment.htf_bias) }}>{alignment.htf_bias}</span>
-          <span style={{ fontSize: 8, color: C.t3 }}>LTF</span>
-          <span style={{ fontSize: 8, fontWeight: 700, color: dirColor(alignment.ltf_bias) }}>{alignment.ltf_bias}</span>
+          <span style={{ fontSize: T.nano, color: C.t3 }}>HTF</span>
+          <span style={{ fontSize: T.nano, fontWeight: 700, color: dirColor(alignment.htf_bias) }}>{alignment.htf_bias}</span>
+          <span style={{ fontSize: T.nano, color: C.t3 }}>LTF</span>
+          <span style={{ fontSize: T.nano, fontWeight: 700, color: dirColor(alignment.ltf_bias) }}>{alignment.ltf_bias}</span>
         </div>
       </div>
 
       {alignment.details.map((d, i) => (
-        <div key={i} style={{ fontSize: 8, color: alignment.state === "ALIGNED" ? C.safe : C.warning, lineHeight: 1.5, letterSpacing: "0.03em" }}>
+        <div key={i} style={{ fontSize: T.nano, color: alignment.state === "ALIGNED" ? C.safe : C.warning, lineHeight: 1.6, letterSpacing: "0.03em" }}>
           {d}
         </div>
       ))}
@@ -136,17 +137,17 @@ export default function MTFRegimeMatrix() {
 
       <Divider label="LEGEND" />
       <div className="flex items-center gap-3">
-        <div className="flex items-center gap-1">
-          <div className="w-2 h-1" style={{ background: C.purple }} />
-          <span style={{ fontSize: 7, color: C.t3 }}>STRATEGIC</span>
+        <div className="flex items-center gap-1.5">
+          <div className="w-2.5 h-1" style={{ background: C.purple }} />
+          <span style={{ fontSize: T.pico, color: C.t3, letterSpacing: "0.06em" }}>STRATEGIC</span>
         </div>
-        <div className="flex items-center gap-1">
-          <div className="w-2 h-1" style={{ background: C.blue }} />
-          <span style={{ fontSize: 7, color: C.t3 }}>TACTICAL</span>
+        <div className="flex items-center gap-1.5">
+          <div className="w-2.5 h-1" style={{ background: C.blue }} />
+          <span style={{ fontSize: T.pico, color: C.t3, letterSpacing: "0.06em" }}>TACTICAL</span>
         </div>
-        <div className="flex items-center gap-1">
-          <div className="w-2 h-1" style={{ background: C.cyan }} />
-          <span style={{ fontSize: 7, color: C.t3 }}>EXECUTION</span>
+        <div className="flex items-center gap-1.5">
+          <div className="w-2.5 h-1" style={{ background: C.cyan }} />
+          <span style={{ fontSize: T.pico, color: C.t3, letterSpacing: "0.06em" }}>EXECUTION</span>
         </div>
       </div>
     </Panel>

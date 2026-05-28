@@ -2,6 +2,7 @@
 
 import { useEffect, useCallback } from "react";
 import { C } from "@/lib/colors";
+import { T, TRACK, CHROME } from "@/lib/tokens";
 import { useMarketStore } from "@/state/stores/useMarketStore";
 import type { WorkspaceId } from "@/types/market";
 
@@ -44,7 +45,7 @@ export default function WorkspaceNav() {
       style={{
         background: C.bg,
         borderBottom: `1px solid ${C.border}`,
-        height: 28,
+        height: CHROME.nav,
         fontFamily: "'IBM Plex Mono', monospace",
       }}
     >
@@ -54,21 +55,21 @@ export default function WorkspaceNav() {
           <button
             key={ws.id}
             onClick={() => setActive(ws.id)}
-            className="relative flex items-center gap-1.5 px-3 transition-colors"
+            className="relative flex items-center gap-1.5 px-3.5 transition-colors"
             style={{
               background: isActive ? C.surface2 : "transparent",
               borderRight: `1px solid ${C.border}`,
               borderBottom: isActive ? `2px solid ${ws.accent}` : "2px solid transparent",
-              color: isActive ? ws.accent : C.t3,
-              fontSize: 9,
-              letterSpacing: "0.12em",
+              color: isActive ? ws.accent : C.t2,
+              fontSize: T.micro,
+              letterSpacing: TRACK.label,
               fontWeight: isActive ? 700 : 500,
               cursor: "pointer",
             }}
           >
             <span
               style={{
-                fontSize: 8,
+                fontSize: T.pico,
                 color: C.t4,
                 opacity: 0.6,
               }}
@@ -81,8 +82,8 @@ export default function WorkspaceNav() {
       })}
       <div className="flex-1" />
       <div
-        className="flex items-center px-3 gap-2"
-        style={{ fontSize: 9, color: C.t3, letterSpacing: "0.08em" }}
+        className="flex items-center px-3.5 gap-2"
+        style={{ fontSize: T.nano, color: C.t3, letterSpacing: "0.08em" }}
       >
         <span>⌥1-7 SWITCH</span>
       </div>

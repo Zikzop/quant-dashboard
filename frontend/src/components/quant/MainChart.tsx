@@ -12,6 +12,7 @@ import {
 import { useEffect, useRef, useMemo, useCallback } from "react";
 import type { IChartApi, ISeriesApi, LogicalRange } from "lightweight-charts";
 import { C, regimeColor, statusColor, proximityColor } from "@/lib/colors";
+import { T, TRACK } from "@/lib/tokens";
 import { fmt, fmtPct, probFraction } from "@/lib/format";
 import { useRiskStore } from "@/state/stores/useRiskStore";
 import { useAlphaStore } from "@/state/stores/useAlphaStore";
@@ -137,9 +138,9 @@ function computeEntryQuality(
 
 function Divider({ label }: { label?: string }) {
   return (
-    <div className="flex items-center gap-2 my-1">
+    <div className="flex items-center gap-2 my-1.5">
       <div className="flex-1 h-px" style={{ background: C.border }} />
-      {label && <span style={{ fontSize: 8, color: C.t3, letterSpacing: "0.15em" }}>{label}</span>}
+      {label && <span style={{ fontSize: T.nano, color: C.t3, letterSpacing: TRACK.label }}>{label}</span>}
       <div className="flex-1 h-px" style={{ background: C.border }} />
     </div>
   );
@@ -148,8 +149,8 @@ function Divider({ label }: { label?: string }) {
 function StatRow({ label, value, accent }: { label: string; value: string; accent?: string }) {
   return (
     <div className="flex items-baseline justify-between py-[2px]">
-      <span style={{ fontSize: 9, color: C.t2, letterSpacing: "0.04em" }}>{label}</span>
-      <span style={{ fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", fontWeight: 600, color: accent ?? C.t1 }}>{value}</span>
+      <span style={{ fontSize: T.micro, color: C.t2, letterSpacing: "0.04em" }}>{label}</span>
+      <span style={{ fontSize: T.sm, fontFamily: "'IBM Plex Mono', monospace", fontWeight: 600, color: accent ?? C.t1 }}>{value}</span>
     </div>
   );
 }
@@ -158,11 +159,11 @@ function ProbBar({ label, value, color }: { label: string; value: number; color:
   const pct = Math.max(0, Math.min(1, value));
   return (
     <div className="flex items-center gap-2">
-      <span style={{ fontSize: 8, color: C.t2, width: 60, letterSpacing: "0.04em", flexShrink: 0 }}>{label}</span>
-      <div className="flex-1 h-[3px]" style={{ background: C.border }}>
+      <span style={{ fontSize: T.nano, color: C.t2, width: 64, letterSpacing: "0.04em", flexShrink: 0 }}>{label}</span>
+      <div className="flex-1 h-[4px]" style={{ background: C.border }}>
         <div className="h-full transition-all duration-300" style={{ width: `${pct * 100}%`, background: color }} />
       </div>
-      <span style={{ fontSize: 9, fontFamily: "'IBM Plex Mono', monospace", color: C.t1, width: 28, textAlign: "right" }}>
+      <span style={{ fontSize: T.micro, fontFamily: "'IBM Plex Mono', monospace", color: C.t1, width: 30, textAlign: "right" }}>
         {(pct * 100).toFixed(0)}%
       </span>
     </div>
@@ -182,7 +183,7 @@ function LegendPill({ color, label }: { color: string; label: string }) {
   return (
     <div className="flex items-center gap-[5px]">
       <div className="w-4 h-[2px] rounded-full" style={{ background: color }} />
-      <span style={{ fontSize: 9, color: C.t2, letterSpacing: "0.04em" }}>{label}</span>
+      <span style={{ fontSize: T.micro, color: C.t2, letterSpacing: "0.04em" }}>{label}</span>
     </div>
   );
 }
@@ -209,22 +210,22 @@ function EntryQualityOverlay({ quality }: { quality: EntryQuality }) {
 
   return (
     <div
-      className="absolute top-4 left-[240px] z-50 w-[200px]"
+      className="absolute top-4 left-[252px] z-50 w-[212px]"
       style={{
         background: "rgba(8,8,9,0.96)",
         border: `1px solid ${C.borderMid}`,
         borderTop: `2px solid ${color}`,
-        padding: "10px 12px",
+        padding: "11px 13px",
         fontFamily: "'IBM Plex Sans', sans-serif",
         boxShadow: "0 4px 32px rgba(0,0,0,0.6)",
       }}
     >
-      <div className="flex items-center justify-between mb-1">
-        <span style={{ fontSize: 8, color: C.t3, letterSpacing: "0.2em" }}>ENTRY QUALITY</span>
+      <div className="flex items-center justify-between mb-1.5">
+        <span style={{ fontSize: T.nano, color: C.t3, letterSpacing: TRACK.label }}>ENTRY QUALITY</span>
         <RegimeDot color={color} pulse={quality.quality_rating === "HIGH_QUALITY"} />
       </div>
 
-      <div style={{ fontSize: 11, fontWeight: 700, color, lineHeight: 1.2, marginBottom: 4, letterSpacing: "0.02em" }}>
+      <div style={{ fontSize: T.lg, fontWeight: 700, color, lineHeight: 1.15, marginBottom: 6, letterSpacing: TRACK.display }}>
         {ratingLabels[quality.quality_rating]}
       </div>
 
@@ -247,7 +248,7 @@ function EntryQualityOverlay({ quality }: { quality: EntryQuality }) {
         <>
           <Divider label="WARNINGS" />
           {quality.warnings.map((w, i) => (
-            <div key={i} style={{ fontSize: 8, color: C.danger, letterSpacing: "0.06em", lineHeight: 1.4 }}>
+            <div key={i} style={{ fontSize: T.nano, color: C.danger, letterSpacing: "0.06em", lineHeight: 1.5, fontWeight: 600 }}>
               ⚠ {w}
             </div>
           ))}
@@ -255,9 +256,9 @@ function EntryQualityOverlay({ quality }: { quality: EntryQuality }) {
       )}
 
       {quality.signals_suppressed && (
-        <div className="mt-1 px-1 py-0.5" style={{ background: "rgba(220,38,38,0.1)", borderLeft: `2px solid ${C.critical}` }}>
+        <div className="mt-1.5 px-1.5 py-1" style={{ background: "rgba(220,38,38,0.1)", borderLeft: `2px solid ${C.critical}` }}>
           {quality.suppression_reasons.map((r, i) => (
-            <div key={i} style={{ fontSize: 7, color: C.critical, letterSpacing: "0.05em" }}>{r}</div>
+            <div key={i} style={{ fontSize: T.pico, color: C.critical, letterSpacing: "0.05em", lineHeight: 1.5, fontWeight: 600 }}>{r}</div>
           ))}
         </div>
       )}
@@ -279,25 +280,25 @@ function RegimeIntelligenceOverlay({ market }: { market: MarketPayload }) {
 
   return (
     <div
-      className="absolute top-4 left-4 z-50 w-[220px]"
+      className="absolute top-4 left-4 z-50 w-[232px]"
       style={{
         background: "rgba(8,8,9,0.96)",
         border: `1px solid ${C.borderMid}`,
         borderTop: `2px solid ${rColor}`,
-        padding: "10px 12px",
+        padding: "11px 13px",
         fontFamily: "'IBM Plex Sans', sans-serif",
         boxShadow: "0 4px 32px rgba(0,0,0,0.6)",
       }}
     >
-      <div className="flex items-center justify-between mb-1">
-        <span style={{ fontSize: 8, color: C.t3, letterSpacing: "0.2em" }}>REGIME ENGINE</span>
+      <div className="flex items-center justify-between mb-1.5">
+        <span style={{ fontSize: T.nano, color: C.t3, letterSpacing: TRACK.label }}>REGIME ENGINE</span>
         <RegimeDot color={rColor} pulse={isActive} />
       </div>
 
-      <div style={{ fontSize: 18, fontWeight: 700, color: rColor, lineHeight: 1.1, letterSpacing: "-0.02em", marginBottom: 2 }}>
+      <div style={{ fontSize: T.xxl, fontWeight: 700, color: rColor, lineHeight: 1.05, letterSpacing: "-0.02em", marginBottom: 3 }}>
         {strengthMap[state?.trend_strength ?? ""] ?? "--"}
       </div>
-      <div style={{ fontSize: 9, color: C.t2, marginBottom: 6 }}>
+      <div style={{ fontSize: T.micro, color: C.t2, marginBottom: 8, letterSpacing: "0.04em" }}>
         {state?.market_regime?.replace(/_/g, " ") ?? "--"}
       </div>
 
@@ -336,25 +337,25 @@ function VolatilityStateOverlay({ market }: { market: MarketPayload }) {
 
   return (
     <div
-      className="absolute top-4 right-4 z-50 w-[190px]"
+      className="absolute top-4 right-4 z-50 w-[202px]"
       style={{
         background: "rgba(8,8,9,0.96)",
         border: `1px solid ${C.borderMid}`,
         borderTop: `2px solid ${volColor}`,
-        padding: "10px 12px",
+        padding: "11px 13px",
         fontFamily: "'IBM Plex Sans', sans-serif",
         boxShadow: "0 4px 32px rgba(0,0,0,0.6)",
       }}
     >
-      <div className="flex items-center justify-between mb-1">
-        <span style={{ fontSize: 8, color: C.t3, letterSpacing: "0.2em" }}>VOL SURFACE</span>
+      <div className="flex items-center justify-between mb-1.5">
+        <span style={{ fontSize: T.nano, color: C.t3, letterSpacing: TRACK.label }}>VOL SURFACE</span>
         <RegimeDot color={volColor} />
       </div>
 
-      <div style={{ fontSize: 16, fontWeight: 700, color: volColor, lineHeight: 1.1, marginBottom: 2 }}>
+      <div style={{ fontSize: T.xl, fontWeight: 700, color: volColor, lineHeight: 1.1, marginBottom: 3, letterSpacing: TRACK.display }}>
         {volRegime}
       </div>
-      <div style={{ fontSize: 8, color: C.t2, marginBottom: 6 }}>GARCH CONDITIONAL VOL</div>
+      <div style={{ fontSize: T.nano, color: C.t2, marginBottom: 8, letterSpacing: "0.04em" }}>GARCH CONDITIONAL VOL</div>
 
       <Divider />
       <div className="space-y-[1px]">
@@ -396,21 +397,21 @@ function ExecutionQualityOverlay() {
 
   return (
     <div
-      className="absolute bottom-12 right-4 z-40 w-[170px]"
+      className="absolute bottom-12 right-4 z-40 w-[180px]"
       style={{
         background: "rgba(8,8,9,0.94)",
         border: `1px solid ${C.borderMid}`,
         borderTop: `2px solid ${execColor}`,
-        padding: "8px 10px",
+        padding: "9px 11px",
         fontFamily: "'IBM Plex Sans', sans-serif",
         boxShadow: "0 4px 32px rgba(0,0,0,0.6)",
       }}
     >
-      <div className="flex items-center justify-between mb-1">
-        <span style={{ fontSize: 8, color: C.t3, letterSpacing: "0.2em" }}>EXEC QUALITY</span>
+      <div className="flex items-center justify-between mb-1.5">
+        <span style={{ fontSize: T.nano, color: C.t3, letterSpacing: TRACK.label }}>EXEC QUALITY</span>
         <RegimeDot color={execColor} />
       </div>
-      <div style={{ fontSize: 12, fontWeight: 700, color: execColor, marginBottom: 4 }}>{execLabel}</div>
+      <div style={{ fontSize: T.lg, fontWeight: 700, color: execColor, marginBottom: 5, letterSpacing: TRACK.display }}>{execLabel}</div>
       <div className="space-y-[1px]">
         <StatRow label="SLIPPAGE" value={`${fmt(slip.avg_slippage_bps, 1)}bps`} accent={slip.avg_slippage_bps > 3 ? C.danger : C.t1} />
         <StatRow label="P99 LAT" value={`${fmt(lat.p99_latency_ms, 0)}ms`} accent={lat.p99_latency_ms > 200 ? C.danger : C.t1} />
@@ -431,21 +432,21 @@ function AlphaHealthOverlay() {
 
   return (
     <div
-      className="absolute bottom-12 left-4 z-40 w-[170px]"
+      className="absolute bottom-12 left-4 z-40 w-[180px]"
       style={{
         background: "rgba(8,8,9,0.94)",
         border: `1px solid ${C.borderMid}`,
         borderTop: `2px solid ${healthColor}`,
-        padding: "8px 10px",
+        padding: "9px 11px",
         fontFamily: "'IBM Plex Sans', sans-serif",
         boxShadow: "0 4px 32px rgba(0,0,0,0.6)",
       }}
     >
-      <div className="flex items-center justify-between mb-1">
-        <span style={{ fontSize: 8, color: C.t3, letterSpacing: "0.2em" }}>ALPHA HEALTH</span>
+      <div className="flex items-center justify-between mb-1.5">
+        <span style={{ fontSize: T.nano, color: C.t3, letterSpacing: TRACK.label }}>ALPHA HEALTH</span>
         <RegimeDot color={healthColor} pulse={alpha.rolling_sharpe_trend === "DETERIORATING"} />
       </div>
-      <div style={{ fontSize: 12, fontWeight: 700, color: healthColor, marginBottom: 4 }}>
+      <div style={{ fontSize: T.lg, fontWeight: 700, color: healthColor, marginBottom: 5, letterSpacing: TRACK.display }}>
         SR {fmt(alpha.rolling_sharpe)} {alpha.rolling_sharpe_trend === "DETERIORATING" ? "↓" : alpha.rolling_sharpe_trend === "IMPROVING" ? "↑" : "→"}
       </div>
       <div className="space-y-[1px]">
@@ -681,27 +682,27 @@ export default function MainChart({ market }: { market: MarketPayload }) {
     <div className="relative w-full" style={{ background: C.bg, fontFamily: "'IBM Plex Sans', sans-serif" }}>
       {/* Header bar */}
       <div
-        className="flex items-center justify-between px-3 py-1.5"
+        className="flex items-center justify-between px-4 py-2"
         style={{ borderBottom: `1px solid ${C.border}` }}
       >
         <div className="flex items-center gap-3">
-          <span style={{ fontSize: 11, fontWeight: 700, color: C.t1, letterSpacing: "0.08em", fontFamily: "'IBM Plex Mono', monospace" }}>
+          <span style={{ fontSize: T.md, fontWeight: 700, color: C.t1, letterSpacing: "0.08em", fontFamily: "'IBM Plex Mono', monospace" }}>
             {getAssetDisplayLabel(activeAsset)}
           </span>
-          <span style={{ fontSize: 8, color: C.t3, background: C.surface, border: `1px solid ${C.border}`, padding: "1px 5px", letterSpacing: "0.1em" }}>
+          <span style={{ fontSize: T.nano, color: C.t2, background: C.surface, border: `1px solid ${C.border}`, padding: "2px 6px", letterSpacing: "0.1em" }}>
             {activeTF}
           </span>
           {tfLoading.includes(activeTF) && (
-            <span className="animate-pulse" style={{ fontSize: 8, color: C.volatile, letterSpacing: "0.1em" }}>LOADING...</span>
+            <span className="animate-pulse" style={{ fontSize: T.nano, color: C.volatile, letterSpacing: "0.1em" }}>LOADING...</span>
           )}
-          <div className="h-3 w-px" style={{ background: C.border }} />
-          <span style={{ fontSize: 9, color: C.t3, letterSpacing: "0.06em" }}>MULTI-TIMEFRAME DECISION ENGINE</span>
+          <div className="h-3.5 w-px" style={{ background: C.border }} />
+          <span style={{ fontSize: T.micro, color: C.t3, letterSpacing: "0.06em" }}>MULTI-TIMEFRAME DECISION ENGINE</span>
         </div>
         <div className="flex items-center gap-4">
           <LegendPill color={C.ema20} label="EMA 20" />
           <LegendPill color={C.ema50} label="EMA 50" />
-          <div className="h-3 w-px" style={{ background: C.border }} />
-          <span style={{ fontSize: 8, color: C.t3, letterSpacing: "0.1em", fontFamily: "'IBM Plex Mono', monospace" }}>
+          <div className="h-3.5 w-px" style={{ background: C.border }} />
+          <span style={{ fontSize: T.nano, color: C.t3, letterSpacing: "0.1em", fontFamily: "'IBM Plex Mono', monospace" }}>
             ADX-14 · GARCH · HMM-3S
           </span>
         </div>

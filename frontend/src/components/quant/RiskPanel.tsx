@@ -1,6 +1,7 @@
 "use client";
 
 import { C } from "@/lib/colors";
+import { T } from "@/lib/tokens";
 import { fmt, fmtPct } from "@/lib/format";
 import { Panel, StatRow, Divider, StatusBadge } from "@/components/ui/primitives";
 import { useRiskStore } from "@/state/stores/useRiskStore";
@@ -19,8 +20,8 @@ export default function RiskPanel({ market }: any) {
         <StatRow label="RISK REGIME" value={market.risk_regime ?? "--"} />
       </div>
       <Divider label="PROP FIRM" />
-      <div className="flex items-center justify-between mb-1">
-        <span style={{ fontSize: 9, color: C.t3 }}>STATUS</span>
+      <div className="flex items-center justify-between mb-1.5">
+        <span style={{ fontSize: T.sm, color: C.t2 }}>STATUS</span>
         <StatusBadge
           label={pf.status}
           color={pf.status === "SAFE" ? C.safe : pf.status === "WARNING" ? C.warning : C.critical}

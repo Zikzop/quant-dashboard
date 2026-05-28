@@ -503,7 +503,29 @@ export default function MainChart({ market }: { market: MarketPayload }) {
   useEffect(() => {
     if (!containerRef.current || !market?.chart_data?.length) return;
 
-    const isIntraday = typeof market.chart_data[0]?.time === "number";
+    // lightweight-charts requires data strictly ascending and unique by time.
+    // Incoming chart_data can contain null/zero/duplicate timestamps, so sanitize
+    // once and derive every series from this clean array.
+    const timeKey = (v: string | number | null | undefined): number =>
+      typeof v === "number" ? v : Date.parse(String(v));
+
+    const sortedBars = [...market.chart_data]
+      .filter((b) => b.time != null && Number.isFinite(timeKey(b.time)))
+      .sort((a, b) => timeKey(a.time) - timeKey(b.time));
+
+    const bars: typeof market.chart_data = [];
+    for (const b of sortedBars) {
+      const last = bars[bars.length - 1];
+      if (last && timeKey(last.time) === timeKey(b.time)) {
+        bars[bars.length - 1] = b; // collapse duplicate timestamp, keep latest
+      } else {
+        bars.push(b);
+      }
+    }
+
+    if (!bars.length) return;
+
+    const isIntraday = typeof bars[0]?.time === "number";
 
     const chart = createChart(containerRef.current, {
       layout: {
@@ -571,23 +593,23 @@ export default function MainChart({ market }: { market: MarketPayload }) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const t = (v: string | number): any => v;
 
-    const candles = market.chart_data.map((b) => ({ time: t(b.time), open: finiteNum(b.open), high: finiteNum(b.high), low: finiteNum(b.low), close: finiteNum(b.close) }));
-    const ema20Data = market.chart_data.map((b) => ({ time: t(b.time), value: finiteNum(b.ema20) }));
-    const ema50Data = market.chart_data.map((b) => ({ time: t(b.time), value: finiteNum(b.ema50) }));
+    const candles = bars.map((b) => ({ time: t(b.time), open: finiteNum(b.open), high: finiteNum(b.high), low: finiteNum(b.low), close: finiteNum(b.close) }));
+    const ema20Data = bars.map((b) => ({ time: t(b.time), value: finiteNum(b.ema20) }));
+    const ema50Data = bars.map((b) => ({ time: t(b.time), value: finiteNum(b.ema50) }));
 
-    const trendBars = market.chart_data.filter((b) => b.hmm_regime === "TRENDING");
-    const volBars = market.chart_data.filter((b) => b.hmm_regime === "MEAN_REVERT");
-    const crisisBars = market.chart_data.filter((b) => b.hmm_regime === "CRISIS");
-    const toOverlay = (bars: typeof market.chart_data) => bars.map((b) => ({ time: t(b.time), value: b.close }));
+    const trendBars = bars.filter((b) => b.hmm_regime === "TRENDING");
+    const volBars = bars.filter((b) => b.hmm_regime === "MEAN_REVERT");
+    const crisisBars = bars.filter((b) => b.hmm_regime === "CRISIS");
+    const toOverlay = (overlayBars: typeof market.chart_data) => overlayBars.map((b) => ({ time: t(b.time), value: b.close }));
 
-    const volHistData = market.chart_data.map((b) => ({
+    const volHistData = bars.map((b) => ({
       time: t(b.time),
       value: finiteNum(b.garch_vol),
       color: finiteNum(b.close) > finiteNum(b.open) ? "rgba(34,197,94,0.40)" : "rgba(239,68,68,0.40)",
     }));
 
-    const transitionData = market.chart_data.map((b, idx) => {
-      const prev = market.chart_data[idx - 1];
+    const transitionData = bars.map((b, idx) => {
+      const prev = bars[idx - 1];
       const isTransition = prev && ((b.hmm_regime && prev.hmm_regime !== b.hmm_regime) || (b.direction && prev.direction !== b.direction));
       return {
         time: t(b.time),
@@ -610,8 +632,8 @@ export default function MainChart({ market }: { market: MarketPayload }) {
     const markers: any[] = [];
 
     if (!entryQuality.signals_suppressed) {
-      market.chart_data.forEach((b, idx) => {
-        const prev = market.chart_data[idx - 1];
+      bars.forEach((b, idx) => {
+        const prev = bars[idx - 1];
         if (!prev) return;
         const dirChanged = b.direction && prev.direction && b.direction !== prev.direction;
         const hmmChanged = b.hmm_regime && prev.hmm_regime && b.hmm_regime !== prev.hmm_regime;

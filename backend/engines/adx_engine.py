@@ -231,6 +231,15 @@ class ADXRegimeEngine:
         Return results as a tidy DataFrame aligned with the input index.
         Useful for backtesting and signal overlays.
         """
+        return self.compute_per_bar_series(ohlcv)
+
+    def compute_per_bar_series(self, ohlcv: pd.DataFrame) -> pd.DataFrame:
+        """
+        Per-bar ADX / DI / regime labels aligned to the input index.
+
+        Causal: Wilder smoothing at bar t uses only OHLCV observations
+        from the start of the series through bar t (no future leakage).
+        """
         results = self.compute(ohlcv)
         records = [
             {
@@ -241,13 +250,13 @@ class ADXRegimeEngine:
                 "tr": r.tr,
                 "di_spread": r.di_spread,
                 "strength": r.strength.value,
+                "trend_strength": r.strength.value,
                 "direction": r.direction.value,
                 "regime": r.regime,
             }
             for r in results
         ]
-        out = pd.DataFrame(records, index=ohlcv.index)
-        return out
+        return pd.DataFrame(records, index=ohlcv.index)
 
     # ------------------------------------------------------------------
     # Mathematical core — fully vectorised

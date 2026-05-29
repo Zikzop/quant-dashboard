@@ -1,60 +1,24 @@
-export default function StructurePanel({
-    market,
-  }: any) {
-  
-    return (
-  
-      <div className="bg-zinc-950 border border-zinc-800 rounded-2xl p-5">
-  
-        <h2 className="text-xl font-bold text-green-400 mb-5">
-          Structure Analytics
-        </h2>
-  
-        <div className="space-y-5">
-  
-          <Metric
-            label="Trend"
-            value={market.trend}
-          />
-  
-          <Metric
-            label="Momentum"
-            value={market.momentum}
-          />
-  
-          <Metric
-            label="Signal Score"
-            value={market.signal_score}
-          />
-  
-          <Metric
-            label="Confidence"
-            value={market.confidence}
-          />
-  
-        </div>
-  
+"use client";
+
+import { C, regimeColor } from "@/lib/colors";
+import { fmt, fmtPct } from "@/lib/format";
+import { Panel, StatRow, Divider } from "@/components/ui/primitives";
+
+export default function StructurePanel({ market }: any) {
+  return (
+    <Panel label="STRUCTURE ANALYTICS" accent={C.bullish}>
+      <div className="space-y-0.5">
+        <StatRow label="TREND" value={market.trend ?? "--"} accent={regimeColor(market.trend)} />
+        <StatRow label="MOMENTUM" value={market.momentum ?? "--"} />
+        <StatRow label="SIGNAL SCORE" value={fmt(market.signal_score)} accent={market.signal_score > 0.7 ? C.bullish : C.t1} />
+        <StatRow label="CONFIDENCE" value={fmt(market.confidence)} accent={(market.confidence ?? 0) > 0.7 ? C.bullish : C.warning} />
       </div>
-    );
-  }
-  
-  function Metric({
-    label,
-    value,
-  }: any) {
-  
-    return (
-  
-      <div className="flex justify-between">
-  
-        <span className="text-zinc-500">
-          {label}
-        </span>
-  
-        <span className="text-white font-bold">
-          {value}
-        </span>
-  
-      </div>
-    );
-  }
+      <Divider label="DIRECTIONAL" />
+      <StatRow label="DIRECTION" value={market.market_state?.direction ?? "--"} accent={
+        market.market_state?.direction?.toUpperCase().includes("BULL") ? C.bullish :
+        market.market_state?.direction?.toUpperCase().includes("BEAR") ? C.bearish : C.neutral
+      } />
+      <StatRow label="STRENGTH" value={market.market_state?.trend_strength ?? "--"} accent={regimeColor(market.market_state?.trend_strength)} />
+    </Panel>
+  );
+}

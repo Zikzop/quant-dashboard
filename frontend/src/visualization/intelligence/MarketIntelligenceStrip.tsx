@@ -1,57 +1,70 @@
-"use client"
+"use client";
 
-export default function
-    MarketIntelligenceStrip({
-        market,
-    }: any) {
+import { C } from "@/lib/colors";
+import { T, TRACK, CHROME } from "@/lib/tokens";
+import { fmt } from "@/lib/format";
+import type { MarketPayload } from "@/types/market";
+import { useTimeframeStore } from "@/state/stores/useTimeframeStore";
 
-    const state =
-        market.market_state
+function Chip({
+  label,
+  value,
+  accent,
+}: {
+  label: string;
+  value: string;
+  accent?: string;
+}) {
+  return (
+    <div className="flex items-baseline gap-1.5">
+      <span style={{ fontSize: T.nano, color: C.t3, letterSpacing: TRACK.labelTight }}>{label}</span>
+      <span
+        style={{
+          fontSize: T.sm,
+          fontFamily: "'IBM Plex Mono', monospace",
+          fontWeight: 600,
+          color: accent ?? C.t1,
+          letterSpacing: TRACK.value,
+        }}
+      >
+        {value}
+      </span>
+    </div>
+  );
+}
 
-    return (
+/** Context strip — session, asset, timeframe. Regime/probability live in decision layer. */
+export default function MarketIntelligenceStrip({ market }: { market: MarketPayload }) {
+  const activeAsset = useTimeframeStore((s) => s.activeAsset);
+  const activeTF = useTimeframeStore((s) => s.activeTimeframe);
+  const activeRange = useTimeframeStore((s) => s.activeRange);
 
-        <div
-            className="
-      w-full
-      border-y
-      border-zinc-900
-      bg-black
-      px-6
-      py-3
-      flex
-      items-center
-      gap-10
-      text-xs
-      uppercase
-      tracking-[0.25em]
-      overflow-x-auto
-      "
-        >
+  if (!market) return null;
 
-            <div className="text-cyan-400">
-                Regime {state.market_regime}
-            </div>
+  const signalColor =
+    market.signal?.includes("BUY") ? C.bullish
+      : market.signal?.includes("SELL") || market.signal?.includes("AVOID") ? C.danger
+        : C.t2;
 
-            <div className="text-orange-400">
-                Strength {state.trend_strength}
-            </div>
-
-            <div className="text-green-400">
-                Direction {state.direction}
-            </div>
-
-            <div className="text-yellow-300">
-                ADX {state.adx?.toFixed(2)}
-            </div>
-
-            <div className="text-fuchsia-400">
-                +DI {state.plus_di?.toFixed(2)}
-            </div>
-
-            <div className="text-pink-400">
-                -DI {state.minus_di?.toFixed(2)}
-            </div>
-
-        </div>
-    )
+  return (
+    <div
+      className="flex items-center gap-6 px-4 overflow-x-auto"
+      style={{
+        background: C.surface,
+        borderBottom: `1px solid ${C.border}`,
+        height: CHROME.strip,
+        fontFamily: "'IBM Plex Mono', monospace",
+      }}
+    >
+      <Chip label="ASSET" value={activeAsset} accent={C.cyan} />
+      <Chip label="TF" value={activeTF} />
+      <Chip label="RANGE" value={activeRange} />
+      <div className="h-3 w-px" style={{ background: C.borderMid }} />
+      <Chip label="PRICE" value={market.price != null ? fmt(market.price, 0) : "--"} accent={C.t1} />
+      <Chip label="SIGNAL" value={market.signal ?? "--"} accent={signalColor} />
+      <Chip label="VOL" value={market.volatility != null ? `${fmt(market.volatility, 1)}%` : "--"} accent={C.volatile} />
+      <div className="h-3 w-px" style={{ background: C.borderMid }} />
+      <Chip label="RISK STATE" value={market.market_state?.risk_state ?? "--"} accent={C.t1} />
+    </div>
+  );
 }

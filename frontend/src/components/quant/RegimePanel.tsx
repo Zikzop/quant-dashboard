@@ -1,49 +1,28 @@
-export default function RegimePanel({
-    market,
-  }: any) {
-  
-    return (
-  
-      <div className="bg-zinc-950 border border-zinc-800 rounded-2xl p-5">
-  
-        <h2 className="text-lg font-bold text-cyan-400 mb-4">
-          Regime State
-        </h2>
-  
-        <div className="space-y-4">
-  
-          <div>
-            <p className="text-zinc-500 text-sm">
-              Market Regime
-            </p>
-  
-            <p className="text-2xl font-bold text-white">
-              {market.regime}
-            </p>
-          </div>
-  
-          <div>
-            <p className="text-zinc-500 text-sm">
-              HMM Regime
-            </p>
-  
-            <p className="text-xl font-bold text-orange-400">
-              {market.hmm_regime}
-            </p>
-          </div>
-  
-          <div>
-            <p className="text-zinc-500 text-sm">
-              Volatility Regime
-            </p>
-  
-            <p className="text-xl font-bold text-red-400">
-              {market.vol_regime}
-            </p>
-          </div>
-  
+"use client";
+
+import { C, regimeColor } from "@/lib/colors";
+import { T } from "@/lib/tokens";
+import { Panel, StatRow, StatusBadge, Divider } from "@/components/ui/primitives";
+
+export default function RegimePanel({ market }: any) {
+  const marketRegime = market.regime ?? market.market_state?.market_regime ?? "--";
+  const hmmRegime = market.hmm_regime ?? "--";
+  const volRegime = market.vol_regime ?? market.market_state?.volatility_regime ?? "--";
+
+  return (
+    <Panel label="REGIME STATE" accent={regimeColor(marketRegime)}>
+      <div className="space-y-2">
+        <div>
+          <div style={{ fontSize: T.nano, color: C.t3, letterSpacing: "0.12em", marginBottom: 4 }}>MARKET REGIME</div>
+          <StatusBadge label={marketRegime} color={regimeColor(marketRegime)} pulse />
         </div>
-  
+        <Divider />
+        <StatRow label="HMM REGIME" value={hmmRegime} accent={regimeColor(hmmRegime)} />
+        <StatRow label="VOL REGIME" value={volRegime} accent={regimeColor(volRegime)} />
+        <StatRow label="TRANSITION RISK" value={market.market_state?.transition_risk ?? "--"}
+          accent={market.market_state?.transition_risk === "ELEVATED" ? C.danger : C.t1} />
+        <StatRow label="PERSISTENCE" value={market.market_state?.trend_persistence ?? "--"} />
       </div>
-    );
-  }
+    </Panel>
+  );
+}

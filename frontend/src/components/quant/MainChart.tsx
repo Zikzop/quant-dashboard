@@ -9,442 +9,511 @@ import {
   AreaSeries,
   HistogramSeries,
 } from "lightweight-charts";
-
-import { useEffect, useRef } from "react";
-
-// ─────────────────────────────────────────────────────────────────────────────
-// TYPE CONTRACTS
-// ─────────────────────────────────────────────────────────────────────────────
-
-interface ChartBar {
-  time: number;
-  open: number;
-  high: number;
-  low: number;
-  close: number;
-  ema20: number;
-  ema50: number;
-  regime?: string;       // e.g. "BULLISH_TRENDING"
-  adx?: number;
-  volatility?: number;   // GARCH conditional vol
-  hmm_state?: number;    // 0=mean-revert 1=trending 2=crisis
-}
-
-interface MarketPayload {
-  chart_data: ChartBar[];
-  regime_label?: string;
-  regime_strength?: string;
-  adx?: number;
-  plus_di?: number;
-  minus_di?: number;
-  hmm_probabilities?: number[];   // [P(mean-revert), P(trending), P(crisis)]
-  garch_vol?: number;
-  transition_risk?: string;
-  vol_regime?: string;
-  persistence?: string;
-  liquidity?: string;
-  confidence?: number;
-}
+import { useEffect, useRef, useMemo, useCallback } from "react";
+import type { IChartApi, ISeriesApi, LogicalRange } from "lightweight-charts";
+import { C, regimeColor, statusColor, proximityColor } from "@/lib/colors";
+import { T, TRACK } from "@/lib/tokens";
+import { fmt, fmtPct, probFraction } from "@/lib/format";
+import { useRiskStore } from "@/state/stores/useRiskStore";
+import { useAlphaStore } from "@/state/stores/useAlphaStore";
+import { useExecutionStore } from "@/state/stores/useExecutionStore";
+import { useTimeframeStore } from "@/state/stores/useTimeframeStore";
+import { getAssetDisplayLabel } from "@/lib/assets/registry";
+import { sanitizeChartBars } from "@/lib/chart/sanitizeBars";
+import { buildChartSeries } from "@/lib/chart/buildSeriesData";
+import MTFAlignmentOverlay from "@/components/mtf/MTFAlignmentOverlay";
+import type { MarketPayload, EntryQuality } from "@/types/market";
+import type { DecisionState } from "@/engines/types";
 
 // ─────────────────────────────────────────────────────────────────────────────
-// COLOR SEMANTICS  — single source of truth
-// All regime/state colors must reference this map.
+// ENTRY QUALITY ENGINE — compute live trade quality from all available signals
 // ─────────────────────────────────────────────────────────────────────────────
 
-const C = {
-  // surface
-  bg: "#080809",
-  surface: "#0d0d0f",
-  border: "#1c1c20",
-  borderMid: "#26262c",
+function computeEntryQuality(
+  market: MarketPayload,
+  riskState: { drawdownPct: number; propProximity: number; leverage: number },
+  alphaState: { sharpe: number; winrate7d: number; signalStability: number },
+  execState: { avgSlippage: number; latency: number },
+  htfPenalty = 0
+): EntryQuality {
+  const state = market.market_state;
+  const warnings: string[] = [];
+  const suppressionReasons: string[] = [];
 
-  // text tiers
-  t1: "#e8e8ea",          // primary — values
-  t2: "#8a8a94",          // secondary — labels
-  t3: "#46464f",          // tertiary — inactive
+  const regimeAlignment = (() => {
+    const hmm = market.hmm_regime?.toUpperCase() ?? "";
+    if (hmm.includes("TRENDING")) return 0.85;
+    if (hmm.includes("MEAN")) return 0.6;
+    if (hmm.includes("CRISIS")) return 0.1;
+    return 0.4;
+  })();
 
-  // regime / signal semantic colors
-  bullish: "#22c55e",
-  bearish: "#ef4444",
-  volatile: "#f59e0b",
-  crisis: "#ef4444",
-  neutral: "#6b7280",
-  cyan: "#06b6d4",
-  blue: "#3b82f6",
-  purple: "#a78bfa",
+  const volSuitability = (() => {
+    const vol = state?.volatility ?? market.volatility ?? 0;
+    if (vol > 60) { warnings.push("EXTREME VOLATILITY"); return 0.15; }
+    if (vol > 40) { warnings.push("HIGH VOLATILITY"); return 0.35; }
+    if (vol < 5) return 0.4;
+    return 0.8;
+  })();
 
-  // chart series
-  candleUp: "#22c55e",
-  candleDown: "#ef4444",
-  ema20: "#06b6d4",
-  ema50: "#3b82f6",
-  volHistBull: "rgba(34,197,94,0.40)",
-  volHistBear: "rgba(239,68,68,0.40)",
-  trendOverlay: "rgba(34,197,94,0.07)",
-  volatileOverlay: "rgba(245,158,11,0.07)",
-  crisisOverlay: "rgba(239,68,68,0.07)",
-} as const;
+  const trendStrength = (() => {
+    const adx = state?.adx ?? 0;
+    if (adx > 40) return 0.9;
+    if (adx > 25) return 0.65;
+    if (adx > 15) return 0.35;
+    return 0.15;
+  })();
 
-// ─────────────────────────────────────────────────────────────────────────────
-// HELPERS
-// ─────────────────────────────────────────────────────────────────────────────
+  const liquidityScore = execState.avgSlippage < 2 ? 0.85 : execState.avgSlippage < 5 ? 0.5 : 0.2;
+  if (execState.avgSlippage > 5) warnings.push("POOR LIQUIDITY");
 
-function regimeColor(regime?: string): string {
-  if (!regime) return C.neutral;
-  if (regime.includes("BULLISH")) return C.bullish;
-  if (regime.includes("BEARISH")) return C.bearish;
-  if (regime.includes("CHOPPY")) return C.volatile;
-  return C.neutral;
-}
+  const correlationEnv = 0.7;
 
-function strengthLabel(s?: string): string {
-  const map: Record<string, string> = {
-    CHOPPY: "RANGING",
-    WEAK: "WEAK TREND",
-    TRENDING: "TRENDING",
-    STRONG: "STRONG",
-    EXTREME: "EXTREME",
+  const executionConditions = (() => {
+    if (execState.latency > 200) { warnings.push("HIGH LATENCY"); return 0.2; }
+    if (execState.latency > 100) return 0.5;
+    return 0.85;
+  })();
+
+  const rrQuality = (() => {
+    if (alphaState.sharpe > 1.5) return 0.9;
+    if (alphaState.sharpe > 1) return 0.7;
+    if (alphaState.sharpe > 0.5) return 0.45;
+    return 0.2;
+  })();
+
+  const rawScore = (
+    regimeAlignment * 0.25 +
+    volSuitability * 0.2 +
+    trendStrength * 0.15 +
+    liquidityScore * 0.1 +
+    correlationEnv * 0.05 +
+    executionConditions * 0.1 +
+    rrQuality * 0.15
+  );
+  const entryScore = Math.max(0, rawScore * (1 - htfPenalty));
+  if (htfPenalty > 0.15) warnings.push(`HTF CONFLICT (-${(htfPenalty * 100).toFixed(0)}%)`);
+
+  const confidenceScore = (state?.confidence ?? 0.5) * (alphaState.signalStability);
+  const regimeConfidence = state?.confidence ?? 0.5;
+
+  let signalsSuppressed = false;
+  if (riskState.drawdownPct > 3) { signalsSuppressed = true; suppressionReasons.push("DRAWDOWN EXCEEDS 3%"); }
+  if (riskState.propProximity > 60) { signalsSuppressed = true; suppressionReasons.push("PROP FIRM PROXIMITY >60%"); }
+  if (riskState.leverage > 4) { signalsSuppressed = true; suppressionReasons.push("LEVERAGE TOO HIGH"); }
+  if (market.crisis_probability && probFraction(market.crisis_probability) > 0.4) {
+    signalsSuppressed = true;
+    suppressionReasons.push("CRISIS PROBABILITY >40%");
+  }
+  if (htfPenalty > 0.3) { signalsSuppressed = true; suppressionReasons.push("STRONG HTF CONFLICT"); }
+
+  const qualityRating: EntryQuality["quality_rating"] =
+    signalsSuppressed ? "AVOID" :
+    entryScore > 0.7 ? "HIGH_QUALITY" :
+    entryScore > 0.5 ? "ACCEPTABLE" :
+    entryScore > 0.3 ? "LOW_EDGE" : "AVOID";
+
+  if (qualityRating === "AVOID") warnings.push("SIGNALS SUPPRESSED");
+
+  return {
+    entry_score: entryScore,
+    confidence_score: confidenceScore,
+    regime_confidence: regimeConfidence,
+    quality_rating: qualityRating,
+    regime_alignment: regimeAlignment,
+    volatility_suitability: volSuitability,
+    trend_strength_score: trendStrength,
+    liquidity_score: liquidityScore,
+    correlation_environment: correlationEnv,
+    execution_conditions: executionConditions,
+    risk_reward_quality: rrQuality,
+    warnings,
+    signals_suppressed: signalsSuppressed,
+    suppression_reasons: suppressionReasons,
   };
-  return s ? (map[s] ?? s) : "—";
-}
-
-function formatPct(v?: number): string {
-  return v != null ? `${(v * 100).toFixed(1)}%` : "—";
-}
-
-function formatNum(v?: number, dp = 2): string {
-  return v != null ? v.toFixed(dp) : "—";
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// SUB-COMPONENTS  — atomic, single responsibility
+// SHARED SUB-COMPONENTS
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** Horizontal rule with optional label — used as section separator */
 function Divider({ label }: { label?: string }) {
   return (
-    <div className="flex items-center gap-2 my-1">
+    <div className="flex items-center gap-2 my-1.5">
       <div className="flex-1 h-px" style={{ background: C.border }} />
-      {label && (
-        <span style={{ fontSize: 9, color: C.t3, letterSpacing: "0.15em" }}>
-          {label}
-        </span>
-      )}
+      {label && <span style={{ fontSize: T.nano, color: C.t3, letterSpacing: TRACK.label }}>{label}</span>}
       <div className="flex-1 h-px" style={{ background: C.border }} />
     </div>
   );
 }
 
-/** Single metric row in a dense stat block */
-function StatRow({
-  label,
-  value,
-  accent,
-  sub,
-}: {
-  label: string;
-  value: string;
-  accent?: string;
-  sub?: string;
-}) {
+function StatRow({ label, value, accent }: { label: string; value: string; accent?: string }) {
   return (
-    <div className="flex items-baseline justify-between py-[3px]">
-      <span style={{ fontSize: 10, color: C.t2, letterSpacing: "0.06em" }}>
-        {label}
-      </span>
-      <div className="flex items-baseline gap-1">
-        {sub && (
-          <span style={{ fontSize: 9, color: C.t3 }}>{sub}</span>
-        )}
-        <span
-          style={{
-            fontSize: 11,
-            fontFamily: "'IBM Plex Mono', monospace",
-            fontWeight: 600,
-            color: accent ?? C.t1,
-            letterSpacing: "0.02em",
-          }}
-        >
-          {value}
-        </span>
-      </div>
+    <div className="flex items-baseline justify-between py-[2px]">
+      <span style={{ fontSize: T.micro, color: C.t2, letterSpacing: "0.04em" }}>{label}</span>
+      <span style={{ fontSize: T.sm, fontFamily: "'IBM Plex Mono', monospace", fontWeight: 600, color: accent ?? C.t1 }}>{value}</span>
     </div>
   );
 }
 
-/** Probability bar — shows a posterior distribution visually */
-function ProbabilityBar({
-  label,
-  value,
-  color,
-}: {
-  label: string;
-  value: number;
-  color: string;
-}) {
+function ProbBar({ label, value, color }: { label: string; value: number; color: string }) {
   const pct = Math.max(0, Math.min(1, value));
   return (
     <div className="flex items-center gap-2">
-      <span
-        style={{
-          fontSize: 9,
-          color: C.t2,
-          width: 72,
-          letterSpacing: "0.05em",
-          flexShrink: 0,
-        }}
-      >
-        {label}
-      </span>
-      <div
-        className="flex-1 h-[3px] rounded-full"
-        style={{ background: C.border }}
-      >
-        <div
-          className="h-full rounded-full transition-all duration-300"
-          style={{ width: `${pct * 100}%`, background: color }}
-        />
+      <span style={{ fontSize: T.nano, color: C.t2, width: 64, letterSpacing: "0.04em", flexShrink: 0 }}>{label}</span>
+      <div className="flex-1 h-[4px]" style={{ background: C.border }}>
+        <div className="h-full transition-all duration-300" style={{ width: `${pct * 100}%`, background: color }} />
       </div>
-      <span
-        style={{
-          fontSize: 10,
-          fontFamily: "'IBM Plex Mono', monospace",
-          color: C.t1,
-          width: 32,
-          textAlign: "right",
-        }}
-      >
+      <span style={{ fontSize: T.micro, fontFamily: "'IBM Plex Mono', monospace", color: C.t1, width: 30, textAlign: "right" }}>
         {(pct * 100).toFixed(0)}%
       </span>
     </div>
   );
 }
 
-/** Chart legend pill */
-function LegendPill({
-  color,
-  label,
-}: {
-  color: string;
-  label: string;
-}) {
-  return (
-    <div className="flex items-center gap-[5px]">
-      <div
-        className="w-4 h-[2px] rounded-full"
-        style={{ background: color }}
-      />
-      <span style={{ fontSize: 10, color: C.t2, letterSpacing: "0.04em" }}>
-        {label}
-      </span>
-    </div>
-  );
-}
-
-/** Regime dot indicator with pulse for active states */
 function RegimeDot({ color, pulse }: { color: string; pulse?: boolean }) {
   return (
     <div className="relative flex items-center justify-center w-3 h-3">
-      {pulse && (
-        <div
-          className="absolute w-3 h-3 rounded-full animate-ping opacity-50"
-          style={{ background: color }}
-        />
-      )}
-      <div
-        className="w-2 h-2 rounded-full"
-        style={{ background: color }}
-      />
+      {pulse && <div className="absolute w-3 h-3 rounded-full animate-ping opacity-50" style={{ background: color }} />}
+      <div className="w-2 h-2 rounded-full" style={{ background: color }} />
+    </div>
+  );
+}
+
+function LegendPill({ color, label }: { color: string; label: string }) {
+  return (
+    <div className="flex items-center gap-[5px]">
+      <div className="w-4 h-[2px] rounded-full" style={{ background: color }} />
+      <span style={{ fontSize: T.micro, color: C.t2, letterSpacing: "0.04em" }}>{label}</span>
     </div>
   );
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// REGIME INTELLIGENCE OVERLAY
-// Answers: What is the current market state? What regime am I operating in?
-// This is the primary cognitive anchor — positioned top-left over chart.
+// ENTRY QUALITY OVERLAY — real-time trade quality score on chart
 // ─────────────────────────────────────────────────────────────────────────────
 
-function RegimeIntelligenceOverlay({ market }: { market: MarketPayload }) {
-  const rColor = regimeColor(market.regime_label);
-  const hmm = market.hmm_probabilities ?? [0.33, 0.33, 0.34];
-  const isActive =
-    market.regime_strength === "TRENDING" ||
-    market.regime_strength === "STRONG" ||
-    market.regime_strength === "EXTREME";
+function EntryQualityOverlay({
+  quality,
+  decision,
+}: {
+  quality: EntryQuality;
+  decision?: DecisionState | null;
+}) {
+  const ratingColors: Record<string, string> = {
+    HIGH_QUALITY: C.bullish,
+    ACCEPTABLE: C.cyan,
+    LOW_EDGE: C.volatile,
+    AVOID: C.critical,
+  };
+
+  const ratingLabels: Record<string, string> = {
+    HIGH_QUALITY: "HIGH QUALITY SETUP",
+    ACCEPTABLE: "ACCEPTABLE ENTRY",
+    LOW_EDGE: "LOW EDGE ENVIRONMENT",
+    AVOID: "AVOID — SIGNALS SUPPRESSED",
+  };
+
+  // When the calibrated decision engine is available, the on-chart verdict must
+  // agree with the Level-1 primary layer. Decision values override the legacy
+  // local heuristic; the factor breakdown below stays as supporting detail.
+  const decisionRatingMap: Record<string, EntryQuality["quality_rating"]> = {
+    HIGH: "HIGH_QUALITY",
+    ACCEPTABLE: "ACCEPTABLE",
+    LOW_EDGE: "LOW_EDGE",
+    AVOID: "AVOID",
+  };
+  const rating = decision ? decisionRatingMap[decision.entryQuality] : quality.quality_rating;
+  const score = decision ? decision.entryScore : quality.entry_score;
+  const confidence = decision ? decision.confidence : quality.confidence_score;
+  const suppressed = decision ? decision.suppressTrade : quality.signals_suppressed;
+  const warnings = decision
+    ? decision.headline
+    : quality.warnings;
+  const suppressionReasons = decision
+    ? decision.headline.length
+      ? decision.headline
+      : ["NO EXECUTABLE EDGE — LOW CALIBRATED CONVICTION"]
+    : quality.suppression_reasons;
+
+  const color = ratingColors[rating] ?? C.neutral;
 
   return (
     <div
-      className="absolute top-4 left-4 z-50 w-[220px]"
+      className="absolute top-4 left-[252px] z-50 w-[212px]"
       style={{
         background: "rgba(8,8,9,0.96)",
         border: `1px solid ${C.borderMid}`,
-        borderRadius: 4,
-        padding: "12px 14px",
+        borderTop: `2px solid ${color}`,
+        padding: "11px 13px",
         fontFamily: "'IBM Plex Sans', sans-serif",
         boxShadow: "0 4px 32px rgba(0,0,0,0.6)",
       }}
     >
-      {/* Header row */}
-      <div className="flex items-center justify-between mb-2">
-        <span style={{ fontSize: 9, color: C.t3, letterSpacing: "0.25em" }}>
-          REGIME ENGINE
+      <div className="flex items-center justify-between mb-1.5">
+        <span style={{ fontSize: T.nano, color: C.t3, letterSpacing: TRACK.label }}>
+          ENTRY QUALITY{decision ? " · CALIBRATED" : ""}
         </span>
+        <RegimeDot color={color} pulse={rating === "HIGH_QUALITY"} />
+      </div>
+
+      <div style={{ fontSize: T.lg, fontWeight: 700, color, lineHeight: 1.15, marginBottom: 6, letterSpacing: TRACK.display }}>
+        {ratingLabels[rating]}
+      </div>
+
+      <div className="grid grid-cols-2 gap-x-2 gap-y-0.5 mb-2">
+        <StatRow label="SCORE" value={`${(score * 100).toFixed(0)}`} accent={color} />
+        <StatRow label="CONFIDENCE" value={fmtPct(confidence)} accent={confidence > 0.6 ? C.bullish : C.warning} />
+      </div>
+
+      {decision && (
+        <div className="grid grid-cols-2 gap-x-2 gap-y-0.5 mb-2">
+          <StatRow label="EXP EDGE" value={`${decision.expectedEdgePct >= 0 ? "+" : ""}${decision.expectedEdgePct.toFixed(2)}%`} accent={decision.expectedEdgePct > 0.02 ? C.bullish : decision.expectedEdgePct < -0.02 ? C.bearish : C.neutral} />
+          <StatRow label="UNCERTAINTY" value={decision.uncertaintyLevel} accent={decision.uncertaintyLevel === "LOW" ? C.bullish : decision.uncertaintyLevel === "MODERATE" ? C.cyan : decision.uncertaintyLevel === "HIGH" ? C.warning : C.danger} />
+        </div>
+      )}
+
+      <Divider label="FACTORS" />
+      <div className="space-y-1">
+        <ProbBar label="REGIME" value={quality.regime_alignment} color={C.cyan} />
+        <ProbBar label="VOL SUIT" value={quality.volatility_suitability} color={C.volatile} />
+        <ProbBar label="TREND" value={quality.trend_strength_score} color={C.bullish} />
+        <ProbBar label="LIQUIDITY" value={quality.liquidity_score} color={C.blue} />
+        <ProbBar label="EXECUTION" value={quality.execution_conditions} color={C.purple} />
+        <ProbBar label="R/R QUAL" value={quality.risk_reward_quality} color={C.amber} />
+      </div>
+
+      {warnings.length > 0 && (
+        <>
+          <Divider label="WARNINGS" />
+          {warnings.map((w, i) => (
+            <div key={i} style={{ fontSize: T.nano, color: C.danger, letterSpacing: "0.06em", lineHeight: 1.5, fontWeight: 600 }}>
+              ⚠ {w}
+            </div>
+          ))}
+        </>
+      )}
+
+      {suppressed && (
+        <div className="mt-1.5 px-1.5 py-1" style={{ background: "rgba(220,38,38,0.1)", borderLeft: `2px solid ${C.critical}` }}>
+          {suppressionReasons.map((r, i) => (
+            <div key={i} style={{ fontSize: T.pico, color: C.critical, letterSpacing: "0.05em", lineHeight: 1.5, fontWeight: 600 }}>{r}</div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// REGIME INTELLIGENCE OVERLAY (enhanced)
+// ─────────────────────────────────────────────────────────────────────────────
+
+function RegimeIntelligenceOverlay({
+  market,
+  decision,
+}: {
+  market: MarketPayload;
+  decision?: DecisionState | null;
+}) {
+  const state = market.market_state;
+  const rColor = regimeColor(state?.market_regime ?? market.hmm_regime);
+  const dColor = state?.direction?.toUpperCase().includes("BULL") ? C.bullish : state?.direction?.toUpperCase().includes("BEAR") ? C.bearish : C.neutral;
+  const isActive = ["TRENDING", "STRONG", "EXTREME"].includes(state?.trend_strength ?? "");
+
+  const strengthMap: Record<string, string> = { CHOPPY: "RANGING", WEAK: "WEAK TREND", TRENDING: "TRENDING", STRONG: "STRONG", EXTREME: "EXTREME" };
+
+  return (
+    <div
+      className="absolute top-4 left-4 z-50 w-[232px]"
+      style={{
+        background: "rgba(8,8,9,0.96)",
+        border: `1px solid ${C.borderMid}`,
+        borderTop: `2px solid ${rColor}`,
+        padding: "11px 13px",
+        fontFamily: "'IBM Plex Sans', sans-serif",
+        boxShadow: "0 4px 32px rgba(0,0,0,0.6)",
+      }}
+    >
+      <div className="flex items-center justify-between mb-1.5">
+        <span style={{ fontSize: T.nano, color: C.t3, letterSpacing: TRACK.label }}>REGIME ENGINE</span>
         <RegimeDot color={rColor} pulse={isActive} />
       </div>
 
-      {/* Primary regime label */}
-      <div
-        style={{
-          fontSize: 20,
-          fontWeight: 700,
-          color: rColor,
-          lineHeight: 1.1,
-          letterSpacing: "-0.02em",
-          marginBottom: 2,
-        }}
-      >
-        {strengthLabel(market.regime_strength)}
+      <div style={{ fontSize: T.xxl, fontWeight: 700, color: rColor, lineHeight: 1.05, letterSpacing: "-0.02em", marginBottom: 3 }}>
+        {strengthMap[state?.trend_strength ?? ""] ?? "--"}
       </div>
-      <div style={{ fontSize: 10, color: C.t2, marginBottom: 10 }}>
-        {market.regime_label?.replace("_", " ") ?? "UNKNOWN REGIME"}
+      <div style={{ fontSize: T.micro, color: C.t2, marginBottom: 8, letterSpacing: "0.04em" }}>
+        {state?.market_regime?.replace(/_/g, " ") ?? "--"}
       </div>
 
       <Divider label="DIRECTIONAL" />
-
-      {/* ADX + DI block */}
-      <div className="mt-1 space-y-[1px]">
-        <StatRow
-          label="ADX"
-          value={formatNum(market.adx)}
-          accent={rColor}
-        />
-        <StatRow
-          label="+DI"
-          value={formatNum(market.plus_di)}
-          accent={C.bullish}
-        />
-        <StatRow
-          label="−DI"
-          value={formatNum(market.minus_di)}
-          accent={C.bearish}
-        />
-        <StatRow
-          label="DI SPREAD"
-          value={formatNum(
-            market.plus_di != null && market.minus_di != null
-              ? market.plus_di - market.minus_di
-              : undefined
-          )}
-          accent={
-            (market.plus_di ?? 0) > (market.minus_di ?? 0)
-              ? C.bullish
-              : C.bearish
-          }
-        />
+      <div className="space-y-[1px]">
+        <StatRow label="REGIME" value={state?.market_regime ?? "--"} accent={rColor} />
+        <StatRow label="DIRECTION" value={state?.direction ?? "--"} accent={dColor} />
+        <StatRow label="ADX" value={state?.adx?.toFixed(2) ?? "--"} accent={rColor} />
+        <StatRow label="+DI / −DI" value={`${fmt(state?.plus_di)} / ${fmt(state?.minus_di)}`} accent={C.t1} />
       </div>
 
-      <Divider label="HMM STATE POSTERIOR" />
+      <Divider label={decision ? "HMM POSTERIOR · CALIBRATED" : "HMM POSTERIOR"} />
+      <div className="space-y-[4px]">
+        {decision ? (
+          <>
+            <ProbBar label="BULL" value={decision.probability.bull.calibrated} color={C.bullish} />
+            <ProbBar label="TRENDING" value={decision.probability.trend.calibrated} color={C.bullish} />
+            <ProbBar label="MEAN-REV" value={decision.probability.meanRevert.calibrated} color={C.cyan} />
+            <ProbBar label="CRISIS" value={decision.probability.crisis.calibrated} color={C.crisis} />
+          </>
+        ) : (
+          <>
+            <ProbBar label="MEAN-REV" value={probFraction(market.mean_revert_probability)} color={C.cyan} />
+            <ProbBar label="TRENDING" value={probFraction(market.trend_probability)} color={C.bullish} />
+            <ProbBar label="CRISIS" value={probFraction(market.crisis_probability)} color={C.crisis} />
+            {market.bull_probability != null && (
+              <ProbBar label="BULL" value={probFraction(market.bull_probability)} color={C.bullish} />
+            )}
+          </>
+        )}
+      </div>
+      {decision && (
+        <div style={{ fontSize: T.pico, color: C.t3, letterSpacing: "0.04em", marginTop: 5, lineHeight: 1.4 }}>
+          {decision.structuralRegime.replace(/_/g, " ")} · {decision.microRegime.replace(/_/g, " ")} · {decision.executionBias.replace(/_/g, " ")}
+        </div>
+      )}
+    </div>
+  );
+}
 
-      {/* HMM probabilities */}
-      <div className="mt-1 space-y-[5px]">
-        <ProbabilityBar label="MEAN-REVERT" value={hmm[0]} color={C.cyan} />
-        <ProbabilityBar label="TRENDING" value={hmm[1]} color={C.bullish} />
-        <ProbabilityBar label="CRISIS" value={hmm[2]} color={C.crisis} />
+// ─────────────────────────────────────────────────────────────────────────────
+// VOLATILITY STATE OVERLAY (enhanced)
+// ─────────────────────────────────────────────────────────────────────────────
+
+function VolatilityStateOverlay({ market }: { market: MarketPayload }) {
+  const state = market.market_state;
+  const volRegime = state?.volatility_regime ?? market.vol_regime ?? "--";
+  const volColor = regimeColor(volRegime);
+
+  const garchDisplay = state?.volatility != null ? `${fmt(state.volatility)}%` :
+    market.garch_vol != null ? fmt(market.garch_vol, 4) : "--";
+
+  return (
+    <div
+      className="absolute top-4 right-4 z-50 w-[202px]"
+      style={{
+        background: "rgba(8,8,9,0.96)",
+        border: `1px solid ${C.borderMid}`,
+        borderTop: `2px solid ${volColor}`,
+        padding: "11px 13px",
+        fontFamily: "'IBM Plex Sans', sans-serif",
+        boxShadow: "0 4px 32px rgba(0,0,0,0.6)",
+      }}
+    >
+      <div className="flex items-center justify-between mb-1.5">
+        <span style={{ fontSize: T.nano, color: C.t3, letterSpacing: TRACK.label }}>VOL SURFACE</span>
+        <RegimeDot color={volColor} />
+      </div>
+
+      <div style={{ fontSize: T.xl, fontWeight: 700, color: volColor, lineHeight: 1.1, marginBottom: 3, letterSpacing: TRACK.display }}>
+        {volRegime}
+      </div>
+      <div style={{ fontSize: T.nano, color: C.t2, marginBottom: 8, letterSpacing: "0.04em" }}>GARCH CONDITIONAL VOL</div>
+
+      <Divider />
+      <div className="space-y-[1px]">
+        <StatRow label="σ (GARCH)" value={garchDisplay} accent={volColor} />
+        <StatRow label="TRANS. RISK" value={state?.transition_risk ?? "--"} accent={state?.transition_risk === "ELEVATED" ? C.bearish : C.t1} />
+        <StatRow label="PERSISTENCE" value={state?.trend_persistence ?? "--"} accent={state?.trend_persistence === "WEAK" ? C.volatile : state?.trend_persistence === "STRONG" ? C.bullish : C.t1} />
+        <StatRow label="RISK STATE" value={state?.risk_state ?? "--"} />
+        <StatRow label="CONFIDENCE" value={state?.confidence != null ? fmtPct(state.confidence) : "--"} accent={(state?.confidence ?? 0) > 0.75 ? C.bullish : (state?.confidence ?? 0) > 0.5 ? C.volatile : C.bearish} />
+      </div>
+
+      <Divider label="VOL EXPANSION PROB" />
+      <ProbBar label="EXPAND" value={volRegime.includes("EXPAND") ? 0.75 : 0.25} color={C.volatile} />
+      <ProbBar label="COMPRESS" value={volRegime.includes("COMPRESS") ? 0.7 : 0.3} color={C.cyan} />
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// EXECUTION QUALITY OVERLAY
+// ─────────────────────────────────────────────────────────────────────────────
+
+function ExecutionQualityOverlay() {
+  const slip = useExecutionStore((s) => s.slippage);
+  const lat = useExecutionStore((s) => s.latency);
+  const bh = useExecutionStore((s) => s.brokerHealth);
+
+  const execScore = (() => {
+    let score = 1;
+    if (slip.avg_slippage_bps > 5) score -= 0.4;
+    else if (slip.avg_slippage_bps > 2) score -= 0.15;
+    if (lat.p99_latency_ms > 200) score -= 0.3;
+    else if (lat.p99_latency_ms > 100) score -= 0.1;
+    if (bh.api_status !== "CONNECTED") score -= 0.3;
+    return Math.max(0, score);
+  })();
+
+  const execColor = execScore > 0.7 ? C.safe : execScore > 0.4 ? C.warning : C.danger;
+  const execLabel = execScore > 0.7 ? "OPTIMAL" : execScore > 0.4 ? "DEGRADED" : "POOR";
+
+  return (
+    <div
+      className="absolute bottom-12 right-4 z-40 w-[180px]"
+      style={{
+        background: "rgba(8,8,9,0.94)",
+        border: `1px solid ${C.borderMid}`,
+        borderTop: `2px solid ${execColor}`,
+        padding: "9px 11px",
+        fontFamily: "'IBM Plex Sans', sans-serif",
+        boxShadow: "0 4px 32px rgba(0,0,0,0.6)",
+      }}
+    >
+      <div className="flex items-center justify-between mb-1.5">
+        <span style={{ fontSize: T.nano, color: C.t3, letterSpacing: TRACK.label }}>EXEC QUALITY</span>
+        <RegimeDot color={execColor} />
+      </div>
+      <div style={{ fontSize: T.lg, fontWeight: 700, color: execColor, marginBottom: 5, letterSpacing: TRACK.display }}>{execLabel}</div>
+      <div className="space-y-[1px]">
+        <StatRow label="SLIPPAGE" value={`${fmt(slip.avg_slippage_bps, 1)}bps`} accent={slip.avg_slippage_bps > 3 ? C.danger : C.t1} />
+        <StatRow label="P99 LAT" value={`${fmt(lat.p99_latency_ms, 0)}ms`} accent={lat.p99_latency_ms > 200 ? C.danger : C.t1} />
+        <StatRow label="BROKER" value={bh.api_status} accent={bh.api_status === "CONNECTED" ? C.safe : C.danger} />
       </div>
     </div>
   );
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// VOLATILITY STATE OVERLAY
-// Answers: What is the current volatility regime? Is risk expanding?
-// Positioned top-right — secondary cognitive layer.
+// ALPHA HEALTH OVERLAY
 // ─────────────────────────────────────────────────────────────────────────────
 
-function VolatilityStateOverlay({ market }: { market: MarketPayload }) {
-  const volColor =
-    market.vol_regime === "EXPANDING" ? C.volatile :
-      market.vol_regime === "CONTRACTING" ? C.cyan :
-        C.neutral;
+function AlphaHealthOverlay() {
+  const alpha = useAlphaStore((s) => s.alpha);
+  const healthColor = alpha.rolling_sharpe_trend === "DETERIORATING" ? C.danger :
+    alpha.rolling_sharpe > 1 ? C.safe : C.warning;
 
   return (
     <div
-      className="absolute top-4 right-4 z-50 w-[196px]"
+      className="absolute bottom-12 left-4 z-40 w-[180px]"
       style={{
-        background: "rgba(8,8,9,0.96)",
+        background: "rgba(8,8,9,0.94)",
         border: `1px solid ${C.borderMid}`,
-        borderRadius: 4,
-        padding: "12px 14px",
+        borderTop: `2px solid ${healthColor}`,
+        padding: "9px 11px",
         fontFamily: "'IBM Plex Sans', sans-serif",
         boxShadow: "0 4px 32px rgba(0,0,0,0.6)",
       }}
     >
-      <div className="flex items-center justify-between mb-2">
-        <span style={{ fontSize: 9, color: C.t3, letterSpacing: "0.25em" }}>
-          VOL SURFACE
-        </span>
-        <RegimeDot color={volColor} />
+      <div className="flex items-center justify-between mb-1.5">
+        <span style={{ fontSize: T.nano, color: C.t3, letterSpacing: TRACK.label }}>ALPHA HEALTH</span>
+        <RegimeDot color={healthColor} pulse={alpha.rolling_sharpe_trend === "DETERIORATING"} />
       </div>
-
-      <div
-        style={{
-          fontSize: 18,
-          fontWeight: 700,
-          color: volColor,
-          lineHeight: 1.1,
-          letterSpacing: "-0.02em",
-          marginBottom: 2,
-        }}
-      >
-        {market.vol_regime ?? "—"}
+      <div style={{ fontSize: T.lg, fontWeight: 700, color: healthColor, marginBottom: 5, letterSpacing: TRACK.display }}>
+        SR {fmt(alpha.rolling_sharpe)} {alpha.rolling_sharpe_trend === "DETERIORATING" ? "↓" : alpha.rolling_sharpe_trend === "IMPROVING" ? "↑" : "→"}
       </div>
-      <div style={{ fontSize: 10, color: C.t2, marginBottom: 10 }}>
-        GARCH CONDITIONAL VOL
-      </div>
-
-      <Divider />
-
       <div className="space-y-[1px]">
-        <StatRow
-          label="σ (GARCH)"
-          value={formatPct(market.garch_vol)}
-          accent={volColor}
-        />
-        <StatRow
-          label="TRANS. RISK"
-          value={market.transition_risk ?? "—"}
-          accent={
-            market.transition_risk === "ELEVATED" ? C.bearish : C.t1
-          }
-        />
-        <StatRow
-          label="PERSISTENCE"
-          value={market.persistence ?? "—"}
-          accent={
-            market.persistence === "WEAKENING" ? C.volatile : C.t1
-          }
-        />
-        <StatRow
-          label="LIQUIDITY"
-          value={market.liquidity ?? "—"}
-          accent={
-            market.liquidity === "TIGHTENING" ? C.volatile : C.t1
-          }
-        />
-        <StatRow
-          label="CONFIDENCE"
-          value={
-            market.confidence != null
-              ? `${market.confidence.toFixed(0)}%`
-              : "—"
-          }
-          accent={
-            (market.confidence ?? 0) > 75 ? C.bullish :
-              (market.confidence ?? 0) > 50 ? C.volatile :
-                C.bearish
-          }
-        />
+        <StatRow label="WINRATE 7D" value={`${fmt(alpha.winrate_7d, 1)}%`} accent={alpha.winrate_7d > 55 ? C.bullish : C.warning} />
+        <StatRow label="STABILITY" value={alpha.winrate_stability} accent={alpha.winrate_stability === "STABLE" ? C.safe : C.danger} />
+        <StatRow label="EDGE REL" value={fmt(alpha.edge_reliability)} accent={alpha.edge_reliability > 0.6 ? C.safe : C.danger} />
       </div>
     </div>
   );
@@ -452,24 +521,22 @@ function VolatilityStateOverlay({ market }: { market: MarketPayload }) {
 
 // ─────────────────────────────────────────────────────────────────────────────
 // CHART LEGEND BAR
-// Positioned bottom-left — always visible context for series colors
 // ─────────────────────────────────────────────────────────────────────────────
 
 function ChartLegendBar() {
   return (
     <div
-      className="absolute bottom-4 left-4 z-40 flex items-center gap-4"
+      className="absolute bottom-4 left-1/2 -translate-x-1/2 z-40 flex items-center gap-4"
       style={{
         background: "rgba(8,8,9,0.88)",
         border: `1px solid ${C.border}`,
-        borderRadius: 3,
-        padding: "5px 10px",
+        padding: "4px 10px",
       }}
     >
       <LegendPill color={C.candleUp} label="PRICE" />
       <LegendPill color={C.ema20} label="EMA 20" />
       <LegendPill color={C.ema50} label="EMA 50" />
-      <LegendPill color={C.volatile} label="VOL HIST" />
+      <LegendPill color={C.volatile} label="GARCH" />
     </div>
   );
 }
@@ -478,13 +545,147 @@ function ChartLegendBar() {
 // MAIN CHART COMPONENT
 // ─────────────────────────────────────────────────────────────────────────────
 
-export default function MainChart({ market }: { market: MarketPayload }) {
+type ChartSeriesRefs = {
+  candle: ISeriesApi<"Candlestick">;
+  ema20: ISeriesApi<"Line">;
+  ema50: ISeriesApi<"Line">;
+  trend: ISeriesApi<"Area">;
+  vol: ISeriesApi<"Area">;
+  crisis: ISeriesApi<"Area">;
+  volHist: ISeriesApi<"Histogram">;
+  transition: ISeriesApi<"Histogram">;
+};
+
+// A saved viewport is only valid for the exact dataset it was captured on.
+// Logical ranges are bar-index based, so restoring one against a dataset with a
+// different bar count pans the chart into empty space (no candles visible).
+type SavedViewport = { range: LogicalRange; barCount: number };
+
+const CHART_DEBUG =
+  typeof process !== "undefined" && process.env.NODE_ENV !== "production";
+
+function chartLog(...args: unknown[]) {
+  if (CHART_DEBUG) console.log("[MainChart]", ...args);
+}
+
+function viewportMatchesData(
+  saved: SavedViewport | undefined,
+  barCount: number,
+): boolean {
+  if (!saved || barCount === 0) return false;
+  const { range, barCount: savedCount } = saved;
+  if (savedCount !== barCount) return false; // dataset changed → re-fit
+  if (!Number.isFinite(range.from) || !Number.isFinite(range.to)) return false;
+  // Require meaningful overlap with the actual bars.
+  const overlap = Math.min(range.to, barCount) - Math.max(range.from, 0);
+  return overlap >= 1;
+}
+
+export default function MainChart({
+  market,
+  decision,
+}: {
+  market: MarketPayload;
+  decision?: DecisionState | null;
+}) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const chartRef = useRef<IChartApi | null>(null);
+  const seriesRef = useRef<ChartSeriesRefs | null>(null);
+  const markersRef = useRef<ReturnType<typeof createSeriesMarkers> | null>(null);
+  const viewportByContext = useRef<Record<string, SavedViewport>>({});
+  const contextKeyRef = useRef("");
+  const contextBarCountRef = useRef(0);
 
+  const dd = useRiskStore((s) => s.drawdown);
+  const pf = useRiskStore((s) => s.propFirm);
+  const risk = useRiskStore((s) => s.portfolioRisk);
+  const alpha = useAlphaStore((s) => s.alpha);
+  const slip = useExecutionStore((s) => s.slippage);
+  const lat = useExecutionStore((s) => s.latency);
+  const htfPenalty = useTimeframeStore((s) => s.alignment.htf_conflict_penalty);
+  const activeTF = useTimeframeStore((s) => s.activeTimeframe);
+  const activeAsset = useTimeframeStore((s) => s.activeAsset);
+  const activeRange = useTimeframeStore((s) => s.activeRange);
+  const tfLoading = useTimeframeStore((s) => s.loadingTimeframes);
+
+  const contextKey = `${activeAsset}|${activeTF}|${activeRange}`;
+
+  const entryQuality = useMemo(() => computeEntryQuality(
+    market,
+    { drawdownPct: Math.abs(dd.daily_drawdown), propProximity: Math.max(pf.daily_proximity_pct, pf.max_proximity_pct), leverage: risk.leverage },
+    { sharpe: alpha.rolling_sharpe, winrate7d: alpha.winrate_7d, signalStability: alpha.signal_stability },
+    { avgSlippage: slip.avg_slippage_bps, latency: lat.p99_latency_ms },
+    htfPenalty,
+  ), [market, dd, pf, risk, alpha, slip, lat, htfPenalty]);
+
+  const bars = useMemo(() => {
+    const raw = market.chart_data ?? [];
+    const clean = sanitizeChartBars(raw);
+    chartLog("data flow", {
+      asset: activeAsset,
+      timeframe: activeTF,
+      range: activeRange,
+      fetched: raw.length,
+      sanitized: clean.length,
+      firstTime: clean[0]?.time,
+      lastTime: clean[clean.length - 1]?.time,
+      timeType: typeof clean[0]?.time,
+    });
+    return clean;
+  }, [market.chart_data, activeAsset, activeTF, activeRange]);
+
+  const hasData = bars.length > 0;
+
+  const applySeriesData = useCallback(
+    (key: string) => {
+      const chart = chartRef.current;
+      const series = seriesRef.current;
+      if (!chart || !series || !bars.length) return;
+
+      const bundle = buildChartSeries(bars, entryQuality.signals_suppressed);
+
+      // Correct update order: price series first, then overlays/markers, then
+      // viewport — so autoscale and fitContent see the candles.
+      series.candle.setData(bundle.candles);
+      series.ema20.setData(bundle.ema20);
+      series.ema50.setData(bundle.ema50);
+      series.trend.setData(bundle.trendOverlay);
+      series.vol.setData(bundle.volOverlay);
+      series.crisis.setData(bundle.crisisOverlay);
+      series.volHist.setData(bundle.volHist);
+      series.transition.setData(bundle.transitions);
+
+      // Update the single markers primitive in place (creating a new one each
+      // update would stack duplicate marker layers on the series).
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      markersRef.current?.setMarkers(bundle.markers as any[]);
+
+      chart.priceScale("right").applyOptions({ autoScale: true });
+
+      // Always land on a VALID viewport: restore only a same-dataset range,
+      // otherwise fit the data. Never leave the chart panned to empty space.
+      const saved = viewportByContext.current[key];
+      if (viewportMatchesData(saved, bars.length)) {
+        chart.timeScale().setVisibleLogicalRange(saved!.range);
+      } else {
+        chart.timeScale().fitContent();
+      }
+
+      chartLog("applySeriesData", {
+        key,
+        candles: bundle.candles.length,
+        firstTime: bundle.candles[0]?.time,
+        lastTime: bundle.candles[bundle.candles.length - 1]?.time,
+        restored: viewportMatchesData(saved, bars.length),
+      });
+    },
+    [bars, entryQuality.signals_suppressed],
+  );
+
+  // Single persistent chart instance — created once per mount.
   useEffect(() => {
-    if (!containerRef.current || !market?.chart_data?.length) return;
+    if (!containerRef.current) return;
 
-    // ── Chart init ────────────────────────────────────────────────────────
     const chart = createChart(containerRef.current, {
       layout: {
         background: { type: ColorType.Solid, color: C.bg },
@@ -501,11 +702,12 @@ export default function MainChart({ market }: { market: MarketPayload }) {
         horzLine: { color: C.borderMid, labelBackgroundColor: "#1c1c20" },
       },
       width: containerRef.current.clientWidth,
-      height: 680,
+      height: 640,
       rightPriceScale: {
         borderColor: C.border,
         textColor: C.t2,
         minimumWidth: 64,
+        autoScale: true,
       },
       timeScale: {
         borderColor: C.border,
@@ -513,23 +715,6 @@ export default function MainChart({ market }: { market: MarketPayload }) {
         secondsVisible: false,
       },
     });
-
-    // ── Series: Candles ───────────────────────────────────────────────────
-    const candleSeries = chart.addSeries(CandlestickSeries, {
-      upColor: C.candleUp,
-      downColor: C.candleDown,
-      borderVisible: false,
-      wickUpColor: C.candleUp,
-      wickDownColor: C.candleDown,
-    });
-
-    // ── Series: Regime background overlays ───────────────────────────────
-    // Each overlay covers only the bars belonging to that regime.
-    // Slicing is done dynamically using regime field per bar.
-
-    const trendBars = market.chart_data.filter(b => b.hmm_state === 1);
-    const volBars = market.chart_data.filter(b => b.hmm_state === 0);
-    const crisisBars = market.chart_data.filter(b => b.hmm_state === 2);
 
     const makeOverlay = (color: string) =>
       chart.addSeries(AreaSeries, {
@@ -543,226 +728,153 @@ export default function MainChart({ market }: { market: MarketPayload }) {
         crosshairMarkerVisible: false,
       });
 
-    const trendOverlay = makeOverlay(C.trendOverlay);
-    const volOverlay = makeOverlay(C.volatileOverlay);
-    const crisisOverlay = makeOverlay(C.crisisOverlay);
-
-    // ── Series: EMA 20 ────────────────────────────────────────────────────
-    const ema20Series = chart.addSeries(LineSeries, {
-      color: C.ema20,
-      lineWidth: 1,
-      lastValueVisible: false,
-      priceLineVisible: false,
-    });
-
-    // ── Series: EMA 50 ────────────────────────────────────────────────────
-    const ema50Series = chart.addSeries(LineSeries, {
-      color: C.ema50,
-      lineWidth: 1,
-      lastValueVisible: false,
-      priceLineVisible: false,
-    });
-
-    // ── Series: Volatility histogram (GARCH-driven) ───────────────────────
-    const volHistogram = chart.addSeries(HistogramSeries, {
-      priceFormat: { type: "volume" },
-      priceScaleId: "vol",
-    });
-
-    chart.priceScale("vol").applyOptions({
-      scaleMargins: { top: 0.85, bottom: 0 },
-    });
-
-    // ── Series: Regime transition pulse ───────────────────────────────────
-    // Fires a vertical spike at structural breaks detected by regime engine.
-    const transitionSeries = chart.addSeries(HistogramSeries, {
-      priceFormat: { type: "volume" },
-      priceScaleId: "vol",
-    });
-
-    // ── Data: map raw bars ────────────────────────────────────────────────
-
-    const candles = market.chart_data.map(b => ({
-      time: b.time,
-      open: b.open,
-      high: b.high,
-      low: b.low,
-      close: b.close,
-    }));
-
-    const ema20Data = market.chart_data.map(b => ({
-      time: b.time,
-      value: b.ema20,
-    }));
-
-    const ema50Data = market.chart_data.map(b => ({
-      time: b.time,
-      value: b.ema50,
-    }));
-
-    // Overlay data: use close price as the value (fills behind candles)
-    const toOverlay = (bars: ChartBar[]) =>
-      bars.map(b => ({ time: b.time, value: b.close }));
-
-    // Vol histogram: abs(close - open) scaled; color by direction
-    const volHistData = market.chart_data.map((b, idx) => {
-      const garchVol = b.volatility ?? Math.abs(b.close - b.open) * 0.1;
-      return {
-        time: b.time,
-        value: garchVol,
-        color: b.close > b.open ? C.volHistBull : C.volHistBear,
-      };
-    });
-
-    // Transition pulses: detect regime changes between consecutive bars
-    const transitionData = market.chart_data.map((b, idx) => {
-      const prev = market.chart_data[idx - 1];
-      const isTransition = prev && b.regime !== prev.regime;
-      return {
-        time: b.time,
-        value: isTransition ? (volHistData[idx]?.value ?? 0) * 3 : 0,
-        color: "rgba(239,68,68,0.9)",
-      };
-    });
-
-    // ── Set data ──────────────────────────────────────────────────────────
-    candleSeries.setData(candles);
-    ema20Series.setData(ema20Data);
-    ema50Series.setData(ema50Data);
-    trendOverlay.setData(toOverlay(trendBars));
-    volOverlay.setData(toOverlay(volBars));
-    crisisOverlay.setData(toOverlay(crisisBars));
-    volHistogram.setData(volHistData);
-    transitionSeries.setData(transitionData);
-
-    // ── Markers: structural events ────────────────────────────────────────
-    // Only emit markers at confirmed structural events — not aesthetic noise.
-    const markers: any[] = [];
-
-    market.chart_data.forEach((b, idx) => {
-      const prev = market.chart_data[idx - 1];
-      if (!prev) return;
-
-      const entered = b.regime !== prev.regime;
-      const isBull = b.regime?.includes("BULLISH") && entered;
-      const isBear = b.regime?.includes("BEARISH") && entered;
-      const isChoppy = b.regime?.includes("CHOPPY") && entered;
-
-      if (isBull) {
-        markers.push({
-          time: b.time,
-          position: "belowBar",
-          color: C.bullish,
-          shape: "arrowUp",
-          text: "BULL REGIME",
-          size: 1,
-        });
-      } else if (isBear) {
-        markers.push({
-          time: b.time,
-          position: "aboveBar",
-          color: C.bearish,
-          shape: "arrowDown",
-          text: "BEAR REGIME",
-          size: 1,
-        });
-      } else if (isChoppy) {
-        markers.push({
-          time: b.time,
-          position: "aboveBar",
-          color: C.volatile,
-          shape: "circle",
-          text: "REGIME BREAK",
-          size: 1,
-        });
-      }
-    });
-
-    if (markers.length) createSeriesMarkers(candleSeries, markers);
-
-    // ── Responsive resize ─────────────────────────────────────────────────
-    const handleResize = () => {
-      if (!containerRef.current) return;
-      chart.applyOptions({ width: containerRef.current.clientWidth });
+    seriesRef.current = {
+      candle: chart.addSeries(CandlestickSeries, {
+        upColor: C.candleUp,
+        downColor: C.candleDown,
+        borderVisible: false,
+        wickUpColor: C.candleUp,
+        wickDownColor: C.candleDown,
+      }),
+      ema20: chart.addSeries(LineSeries, {
+        color: C.ema20,
+        lineWidth: 1,
+        lastValueVisible: false,
+        priceLineVisible: false,
+      }),
+      ema50: chart.addSeries(LineSeries, {
+        color: C.ema50,
+        lineWidth: 1,
+        lastValueVisible: false,
+        priceLineVisible: false,
+      }),
+      trend: makeOverlay("rgba(34,197,94,0.07)"),
+      vol: makeOverlay("rgba(245,158,11,0.07)"),
+      crisis: makeOverlay("rgba(239,68,68,0.07)"),
+      volHist: chart.addSeries(HistogramSeries, {
+        priceFormat: { type: "volume" },
+        priceScaleId: "vol",
+      }),
+      transition: chart.addSeries(HistogramSeries, {
+        priceFormat: { type: "volume" },
+        priceScaleId: "vol",
+      }),
     };
-    window.addEventListener("resize", handleResize);
+    chart.priceScale("vol").applyOptions({ scaleMargins: { top: 0.85, bottom: 0 } });
+    markersRef.current = createSeriesMarkers(
+      seriesRef.current.candle,
+      [],
+    ) as unknown as ReturnType<typeof createSeriesMarkers>;
+    chartRef.current = chart;
+
+    const applyWidth = () => {
+      const el = containerRef.current;
+      if (!el) return;
+      const w = el.clientWidth;
+      if (w > 0) chart.applyOptions({ width: w });
+    };
+    applyWidth();
+
+    // A ResizeObserver (not just window 'resize') recovers from a 0-width first
+    // paint and panel/sidebar layout changes — a zero-width chart renders no
+    // visible candles even when data is set correctly.
+    const ro =
+      typeof ResizeObserver !== "undefined"
+        ? new ResizeObserver(() => applyWidth())
+        : null;
+    if (ro && containerRef.current) ro.observe(containerRef.current);
+    window.addEventListener("resize", applyWidth);
 
     return () => {
-      window.removeEventListener("resize", handleResize);
+      window.removeEventListener("resize", applyWidth);
+      ro?.disconnect();
       chart.remove();
+      chartRef.current = null;
+      seriesRef.current = null;
+      markersRef.current = null;
     };
-  }, [market]);
+  }, []);
+
+  // Update series only — preserve viewport on TF/range refresh within same asset.
+  useEffect(() => {
+    const chart = chartRef.current;
+    if (!chart || !bars.length) return;
+
+    // Capture the outgoing viewport against the bar count it was shown with, so
+    // we only ever restore it onto an identically-shaped dataset.
+    const prevKey = contextKeyRef.current;
+    if (prevKey) {
+      const lr = chart.timeScale().getVisibleLogicalRange();
+      if (lr) {
+        viewportByContext.current[prevKey] = {
+          range: lr,
+          barCount: contextBarCountRef.current,
+        };
+      }
+    }
+
+    const isIntraday = typeof bars[0]?.time === "number";
+    chart.applyOptions({
+      timeScale: { timeVisible: isIntraday, secondsVisible: false },
+    });
+
+    applySeriesData(contextKey);
+    contextKeyRef.current = contextKey;
+    contextBarCountRef.current = bars.length;
+  }, [bars, contextKey, applySeriesData]);
 
   return (
-    <div
-      className="relative w-full"
-      style={{ background: C.bg, fontFamily: "'IBM Plex Sans', sans-serif" }}
-    >
-      {/* ── Terminal header bar ─────────────────────────────────────────── */}
+    <div className="relative w-full" style={{ background: C.bg, fontFamily: "'IBM Plex Sans', sans-serif" }}>
+      {/* Header bar */}
       <div
         className="flex items-center justify-between px-4 py-2"
         style={{ borderBottom: `1px solid ${C.border}` }}
       >
-        {/* Left: instrument + session tag */}
-        <div className="flex items-center gap-4">
-          <div className="flex items-center gap-2">
-            <span
-              style={{
-                fontSize: 11,
-                fontWeight: 700,
-                color: C.t1,
-                letterSpacing: "0.08em",
-                fontFamily: "'IBM Plex Mono', monospace",
-              }}
-            >
-              BTC / USD
-            </span>
-            <span
-              style={{
-                fontSize: 9,
-                color: C.t3,
-                background: C.surface,
-                border: `1px solid ${C.border}`,
-                borderRadius: 2,
-                padding: "1px 5px",
-                letterSpacing: "0.1em",
-              }}
-            >
-              PERPETUAL
-            </span>
-          </div>
-          <div className="h-3 w-px" style={{ background: C.border }} />
-          <span style={{ fontSize: 10, color: C.t3, letterSpacing: "0.06em" }}>
-            INSTITUTIONAL ANALYTICS
+        <div className="flex items-center gap-3">
+          <span style={{ fontSize: T.md, fontWeight: 700, color: C.t1, letterSpacing: "0.08em", fontFamily: "'IBM Plex Mono', monospace" }}>
+            {getAssetDisplayLabel(activeAsset)}
           </span>
+          <span style={{ fontSize: T.nano, color: C.t2, background: C.surface, border: `1px solid ${C.border}`, padding: "2px 6px", letterSpacing: "0.1em" }}>
+            {activeTF}
+          </span>
+          {tfLoading.includes(activeTF) && (
+            <span className="animate-pulse" style={{ fontSize: T.nano, color: C.volatile, letterSpacing: "0.1em" }}>LOADING...</span>
+          )}
+          <div className="h-3.5 w-px" style={{ background: C.border }} />
+          <span style={{ fontSize: T.micro, color: C.t3, letterSpacing: "0.06em" }}>MULTI-TIMEFRAME DECISION ENGINE</span>
         </div>
-
-        {/* Right: series legend */}
-        <div className="flex items-center gap-5">
+        <div className="flex items-center gap-4">
           <LegendPill color={C.ema20} label="EMA 20" />
           <LegendPill color={C.ema50} label="EMA 50" />
-          <div className="h-3 w-px" style={{ background: C.border }} />
-          <span
-            style={{
-              fontSize: 9,
-              color: C.t3,
-              letterSpacing: "0.12em",
-              fontFamily: "'IBM Plex Mono', monospace",
-            }}
-          >
+          <div className="h-3.5 w-px" style={{ background: C.border }} />
+          <span style={{ fontSize: T.nano, color: C.t3, letterSpacing: "0.1em", fontFamily: "'IBM Plex Mono', monospace" }}>
             ADX-14 · GARCH · HMM-3S
           </span>
         </div>
       </div>
 
-      {/* ── Chart canvas area ───────────────────────────────────────────── */}
+      {/* Chart + overlays */}
       <div className="relative">
         <div ref={containerRef} className="w-full" />
-
-        {/* Intelligence overlays — positioned over chart */}
-        <RegimeIntelligenceOverlay market={market} />
-        <VolatilityStateOverlay market={market} />
-        <ChartLegendBar />
+        {!hasData && (
+          <div
+            className="absolute inset-0 z-[60] flex flex-col items-center justify-center"
+            style={{ background: "rgba(8,8,9,0.92)" }}
+          >
+            <div style={{ fontSize: T.md, fontWeight: 700, color: C.volatile, letterSpacing: "0.12em" }}>
+              NO CHART DATA
+            </div>
+            <div style={{ fontSize: T.micro, color: C.t3, letterSpacing: "0.08em", marginTop: 6 }}>
+              {getAssetDisplayLabel(activeAsset)} · {activeTF} · {activeRange} — awaiting valid OHLCV
+            </div>
+          </div>
+        )}
+        {hasData && (
+          <>
+            <MTFAlignmentOverlay />
+            <ChartLegendBar />
+          </>
+        )}
       </div>
     </div>
   );

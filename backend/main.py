@@ -1,27 +1,53 @@
-from fastapi import FastAPI
+"""
+FastAPI application — thin HTTP layer.
+
+All market intelligence now flows through the layered backend:
+
+    HTTP (this file)
+      -> MarketIntelligenceService   (orchestration + regime cache)
+        -> MarketDataAccess          (provider + reliability + raw cache + validation)
+        -> deterministic pipeline    (features -> volatility -> regimes -> signals)
+
+This module owns nothing but request handling: routing, request-ID propagation,
+latency metrics, and translating domain errors into HTTP responses. The payload
+shape is unchanged from the prototype (backward compatible) with additive fields
+(``asset_id``, ``feature_version``, ``regime_transition``, ``meta``).
+"""
+
+from __future__ import annotations
+
+import time
+
+from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse, PlainTextResponse
 
-import yfinance as yf
-import pandas as pd
-import numpy as np
-
-from engines.adx_engine import (
-    ADXRegimeEngine,
-    RegimeEngineConfig,
-    adx_result_to_dict,
+from assets.registry import list_asset_metadata
+from assets.timeframes import (
+    CANONICAL_TIMEFRAMES,
+    DEFAULT_HISTORICAL_RANGE,
+    HISTORICAL_RANGES,
+    VALID_TIMEFRAMES,
+    normalize_range,
 )
+from core.config import get_settings
+from core.logging import (
+    clear_request_id,
+    configure_logging,
+    get_logger,
+    set_request_id,
+)
+from core.metrics import API_LATENCY, render_latest
+from pipeline.context import InsufficientDataError
+from pipeline.service import get_market_intelligence_service
+from schemas.market import MarketPayload
+from validation.service import run_validation
 
-from engines.market_state_engine import build_market_state
+settings = get_settings()
+configure_logging(level=settings.log_level, json_output=settings.log_json)
+logger = get_logger("api")
 
-from engines.garch_engine import calculate_garch_volatility
-
-from engines.hmm_regime_engine import HMMRegimeEngine
-
-from engines.signal_engine import calculate_signal_engine
-
-app = FastAPI()
-
-hmm_engine = HMMRegimeEngine()
+app = FastAPI(title="Quant Regime Research API", version="2.0.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -31,178 +57,176 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+DEFAULT_TIMEFRAME = "1D"
+
+
+@app.middleware("http")
+async def request_context(request: Request, call_next):
+    """Bind a request id, time the request, and surface the id to clients."""
+    rid = set_request_id(request.headers.get("X-Request-ID"))
+    start = time.perf_counter()
+    status = "500"
+    try:
+        response: Response = await call_next(request)
+        status = str(response.status_code)
+        response.headers["X-Request-ID"] = rid
+        return response
+    finally:
+        elapsed = time.perf_counter() - start
+        API_LATENCY.labels(
+            endpoint=request.url.path,
+            asset=request.query_params.get("symbol", "-"),
+            timeframe=request.path_params.get("tf", "-") if hasattr(request, "path_params") else "-",
+            status=status,
+        ).observe(elapsed)
+        logger.info(
+            "request",
+            method=request.method,
+            path=request.url.path,
+            status=status,
+            duration_ms=round(elapsed * 1000, 1),
+        )
+        clear_request_id()
+
+
+def _serialize(payload: dict) -> dict:
+    """Enforce the response contract; fall back to raw payload on drift.
+
+    Validating through ``MarketPayload`` guarantees the documented shape. If the
+    pipeline ever emits something off-contract we log loudly but still serve the
+    request (availability over strictness for a read-only research endpoint).
+    """
+    try:
+        return MarketPayload.model_validate(payload).model_dump(mode="json")
+    except Exception as exc:
+        logger.error("payload_contract_violation", error=str(exc))
+        return payload
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Operational endpoints
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+@app.get("/health")
+def health():
+    return {
+        "status": "ok",
+        "provider": settings.market_data_provider,
+        "feature_version": settings.feature_version,
+        "timeframes": list(CANONICAL_TIMEFRAMES),
+        "historical_ranges": list(HISTORICAL_RANGES),
+    }
+
+
+@app.get("/metrics")
+def metrics():
+    payload, content_type = render_latest()
+    return PlainTextResponse(content=payload, media_type=content_type)
+
+
+@app.get("/assets")
+def assets():
+    return {
+        "assets": list_asset_metadata(),
+        "timeframes": list(CANONICAL_TIMEFRAMES),
+        "historical_ranges": list(HISTORICAL_RANGES),
+    }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Market intelligence
+# ─────────────────────────────────────────────────────────────────────────────
+
 
 @app.get("/market")
-def get_market():
+def get_market(symbol: str = "BTC", range: str = DEFAULT_HISTORICAL_RANGE):
+    """Legacy daily endpoint — now multi-asset and routed through the pipeline."""
+    try:
+        range_label = normalize_range(range)
+    except ValueError as exc:
+        return JSONResponse(status_code=400, content={"error": str(exc)})
+    return _market(symbol, DEFAULT_TIMEFRAME, range_label)
 
-    symbol = "BTC-USD"
 
-    df = yf.download(symbol, period="2y", interval="1d")
-
-    df.columns = df.columns.get_level_values(0)
-
-    close = df["Close"].squeeze()
-
-    # =========================
-    # TECHNICAL STRUCTURE
-    # =========================
-
-    df["EMA20"] = close.ewm(span=20).mean()
-    df["EMA50"] = close.ewm(span=50).mean()
-
-    returns = close.pct_change()
-
-    volatility = returns.std() * np.sqrt(252)
-
-    current_price = float(close.iloc[-1])
-
-    ema20 = float(df["EMA20"].iloc[-1])
-    ema50 = float(df["EMA50"].iloc[-1])
-
-    # =========================
-    # TREND ENGINE
-    # =========================
-
-    trend = "RANGING"
-
-    if current_price > ema20 and ema20 > ema50:
-        trend = "BULLISH"
-
-    elif current_price < ema20 and ema20 < ema50:
-        trend = "BEARISH"
-
-    # =========================
-    # MOMENTUM
-    # =========================
-
-    momentum = ((current_price / float(close.iloc[-20])) - 1) * 100
-
-    # =========================
-    # GARCH ENGINE
-    # =========================
-
-    garch_data = calculate_garch_volatility(close)
-
-    # =========================
-    # HMM REGIME ENGINE
-    # =========================
-
-    hmm_data = hmm_engine.classify_regimes(df)
-
-    # =========================
-    # MARKET REGIME
-    # =========================
-
-    structure_regime = "RANGING"
-
-    if garch_data["vol_regime"] == "EXPANDING_VOL":
-        structure_regime = "VOLATILE"
-
-    if trend == "BULLISH" and momentum > 5:
-        structure_regime = "TRENDING_BULL"
-
-    elif trend == "BEARISH" and momentum < -5:
-        structure_regime = "TRENDING_BEAR"
-
-    # =========================
-    # SIGNAL ENGINE
-    # =========================
-
-    signal_data = calculate_signal_engine(
-        trend=trend,
-        momentum=momentum,
-        volatility=volatility,
-        hmm_data=hmm_data,
-        garch_data=garch_data,
-    )
-
-    # =========================
-    # CHART DATA
-    # =========================
-
-    chart_data = []
-
-    for index, row in df.tail(30).iterrows():
-
-        chart_data.append(
-            {
-                "time": index.strftime("%Y-%m-%d"),
-                "open": round(float(row["Open"]), 2),
-                "high": round(float(row["High"]), 2),
-                "low": round(float(row["Low"]), 2),
-                "close": round(float(row["Close"]), 2),
-                "ema20": round(float(row["EMA20"]), 2),
-                "ema50": round(float(row["EMA50"]), 2),
-            }
+@app.get("/market/timeframe/{tf}")
+def get_market_timeframe(
+    tf: str,
+    symbol: str = "BTC",
+    range: str = DEFAULT_HISTORICAL_RANGE,
+):
+    if tf not in VALID_TIMEFRAMES:
+        return JSONResponse(
+            status_code=400,
+            content={"error": f"Invalid timeframe: {tf}. Valid: {sorted(VALID_TIMEFRAMES)}"},
         )
+    try:
+        range_label = normalize_range(range)
+    except ValueError as exc:
+        return JSONResponse(status_code=400, content={"error": str(exc)})
+    return _market(symbol, tf, range_label)
 
-    adx_latest = regime_engine.compute_latest(df)
 
-    adx_result = adx_result_to_dict(adx_latest)
+def _market(symbol: str, tf: str, historical_range: str = DEFAULT_HISTORICAL_RANGE):
+    service = get_market_intelligence_service()
+    try:
+        payload = service.compute(symbol, tf, historical_range=historical_range)
+        return _serialize(payload)
+    except InsufficientDataError as exc:
+        return JSONResponse(status_code=422, content={"error": str(exc)})
+    except ValueError as exc:  # unknown symbol / timeframe
+        return JSONResponse(status_code=400, content={"error": str(exc)})
+    except Exception as exc:
+        logger.exception("market_request_failed", symbol=symbol, timeframe=tf)
+        return JSONResponse(status_code=502, content={"error": str(exc)})
 
-    market_state = build_market_state(
-        adx_result=adx_result,
-        garch_result={"volatility": garch_data["garch_vol"]},
-        hmm_result={"regime": hmm_data["regime_label"]},
-        risk_result={"risk_regime": signal_data["signal"]},
-    )
 
-    # =========================
-    # DEBUG
-    # =========================
+@app.get("/correlation")
+def get_correlation():
+    from engines.correlation_engine import calculate_correlation_intelligence
 
-    print("========== MARKET DEBUG ==========")
+    try:
+        return calculate_correlation_intelligence()
+    except Exception as exc:
+        logger.exception("correlation_failed")
+        return JSONResponse(status_code=502, content={"error": str(exc)})
 
-    print("Current Price:", current_price)
-    print("EMA20:", ema20)
-    print("EMA50:", ema50)
-    print("Momentum:", momentum)
-    print("Volatility:", volatility)
-    print("Trend:", trend)
-    print("Regime:", regime)
 
-    print("GARCH VOL:", garch_data["garch_vol"])
+# ─────────────────────────────────────────────────────────────────────────────
+# Validation (P0.5)
+# ─────────────────────────────────────────────────────────────────────────────
 
-    print("VOL REGIME:", garch_data["vol_regime"])
 
-    print("HMM REGIME:", hmm_data["regime_label"])
+@app.get("/validation/{tf}")
+def get_validation(tf: str, symbol: str = "BTC", n_trials: int = 10):
+    if tf not in VALID_TIMEFRAMES:
+        return JSONResponse(
+            status_code=400,
+            content={"error": f"Invalid timeframe: {tf}. Valid: {sorted(VALID_TIMEFRAMES)}"},
+        )
+    try:
+        return run_validation(symbol, tf, n_trials=max(1, n_trials))
+    except InsufficientDataError as exc:
+        return JSONResponse(status_code=422, content={"error": str(exc)})
+    except ValueError as exc:
+        return JSONResponse(status_code=400, content={"error": str(exc)})
+    except Exception as exc:
+        logger.exception("validation_failed", symbol=symbol, timeframe=tf)
+        return JSONResponse(status_code=502, content={"error": str(exc)})
 
-    print("TREND PROB:", hmm_data["trend_probability"])
 
-    print("CRISIS PROB:", hmm_data["crisis_probability"])
+# ─────────────────────────────────────────────────────────────────────────────
+# Cache administration
+# ─────────────────────────────────────────────────────────────────────────────
 
-    print("SIGNAL:", signal_data["signal"])
 
-    print("SIGNAL SCORE:", signal_data["signal_score"])
-
-    # =========================
-    # API RESPONSE
-    # =========================
-
-    return {
-        "symbol": symbol,
-        "price": round(current_price, 2),
-        "trend": trend,
-        "market_state": market_state,
-        "volatility": round(volatility * 100, 2),
-        "ema20": round(ema20, 2),
-        "ema50": round(ema50, 2),
-        "momentum": round(momentum, 2),
-        "structure_regime": structure_regime,
-        # SIGNAL ENGINE
-        "signal": signal_data["signal"],
-        "signal_score": signal_data["signal_score"],
-        "confidence": signal_data["confidence"],
-        "bull_probability": signal_data["bull_probability"],
-        # GARCH
-        "garch_vol": garch_data["garch_vol"],
-        "vol_regime": garch_data["vol_regime"],
-        "vol_slope": garch_data["vol_slope"],
-        # HMM
-        "hmm_regime": hmm_data["regime_label"],
-        "trend_probability": hmm_data["trend_probability"],
-        "crisis_probability": hmm_data["crisis_probability"],
-        "mean_revert_probability": hmm_data["mean_revert_probability"],
-        # CHART
-        "chart_data": chart_data,
-    }
+@app.post("/admin/cache/invalidate")
+def invalidate_cache(symbol: str = "BTC", timeframe: str = DEFAULT_TIMEFRAME):
+    if timeframe not in VALID_TIMEFRAMES:
+        return JSONResponse(
+            status_code=400,
+            content={"error": f"Invalid timeframe: {timeframe}"},
+        )
+    service = get_market_intelligence_service()
+    service.invalidate(symbol, timeframe)
+    return {"status": "invalidated", "symbol": symbol, "timeframe": timeframe}

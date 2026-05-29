@@ -25,6 +25,13 @@ export const ASSET_REGISTRY: Record<string, AssetDefinition> = {
 
 export const ASSET_IDS = Object.keys(ASSET_REGISTRY) as (keyof typeof ASSET_REGISTRY)[];
 
+/** Display grouping for the asset control bar — subtle class separators, not large headers. */
+export const ASSET_DISPLAY_GROUPS = [
+  { label: "CRYPTO", ids: ["BTC"] as const },
+  { label: "MACRO", ids: ["DXY", "GOLD"] as const },
+  { label: "IDX", ids: ["ES", "NQ"] as const },
+] as const;
+
 /** Prepared for Phase 4 cross-asset intelligence — not wired yet. */
 export const CROSS_ASSET_GROUPS = {
   MACRO_FX_COMMODITY: ["GOLD", "DXY"] as const,

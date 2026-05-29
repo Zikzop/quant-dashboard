@@ -6,9 +6,7 @@ import { useEffect, useRef } from "react";
 import TopBar from "../src/components/quant/TopBar";
 import WorkspaceNav from "../src/components/workspace/WorkspaceNav";
 import MarketIntelligenceStrip from "@/visualization/intelligence/MarketIntelligenceStrip";
-import TimeframeSelector from "@/components/mtf/TimeframeSelector";
-import AssetSelector from "@/components/mtf/AssetSelector";
-import RangeSelector from "@/components/mtf/RangeSelector";
+import { MarketControlLayer } from "@/components/controls";
 import { marketMatchesAsset } from "@/lib/assets/registry";
 import { useMarketStore } from "@/state/stores/useMarketStore";
 import { useTimeframeStore } from "@/state/stores/useTimeframeStore";
@@ -128,9 +126,7 @@ function ChartWorkspace({ market }: { market: MarketPayload }) {
 
   return (
     <div className="h-full overflow-auto" style={{ background: "#0a0a0c" }}>
-      <AssetSelector />
-      <TimeframeSelector />
-      <RangeSelector />
+      <MarketControlLayer decision={decision} />
 
       {/* LEVEL 1 — dominant primary decision layer */}
       {decision && <PrimaryDecisionLayer decision={decision} />}

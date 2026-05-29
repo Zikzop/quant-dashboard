@@ -91,3 +91,24 @@ button:focus-visible {
 table {
   border-spacing: 0;
 }
+
+/* ── Market control layer — institutional segmented controls ── */
+
+.market-control-layer .control-group-segments {
+  scrollbar-width: none;
+}
+
+.market-control-layer .control-group-segments::-webkit-scrollbar {
+  display: none;
+}
+
+.control-segment:focus-visible {
+  outline: 1px solid rgba(6, 182, 212, 0.45);
+  outline-offset: -1px;
+}
+
+@media (max-width: 1280px) {
+  .control-micro-label {
+    display: none;
+  }
+}

@@ -20,6 +20,8 @@ import { computeCorrelationState } from "@/engines/correlation/correlationEngine
 import { computeRegimeDecomposition } from "@/engines/regime/regimeEngine";
 import { computeExecutionState } from "@/engines/execution/executionEngine";
 import { computeUncertaintyState } from "@/engines/uncertainty/uncertaintyEngine";
+import { computeCapitalAllocation } from "@/engines/capital/capitalAllocationEngine";
+import { computeRegimeLifecycle } from "@/engines/regime/regimeLifecycleEngine";
 
 function clamp01(x: number): number {
   if (Number.isNaN(x)) return 0;
@@ -102,7 +104,7 @@ export function computeDecisionState(
   if (transition.stability === "UNSTABLE") headline.push("REGIME TRANSITION UNSTABLE");
   if (execution.executionRisk > 0.6) headline.push("DEGRADED EXECUTION CONDITIONS");
 
-  return {
+  const base = {
     structuralRegime: regime.structural,
     microRegime: regime.micro,
     executionBias: regime.executionBias,
@@ -128,4 +130,9 @@ export function computeDecisionState(
     execution,
     risk,
   };
+
+  const capital = computeCapitalAllocation(base);
+  const lifecycle = computeRegimeLifecycle(market, transition, regime.structural, regime.micro);
+
+  return { ...base, capital, lifecycle };
 }

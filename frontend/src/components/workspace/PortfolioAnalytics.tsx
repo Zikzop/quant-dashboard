@@ -11,6 +11,7 @@ import {
   Sparkline,
 } from "@/components/ui/primitives";
 import { usePortfolioStore } from "@/state/stores/usePortfolioStore";
+import { useRiskStore } from "@/state/stores/useRiskStore";
 
 function AllocationByAssetPanel() {
   const alloc = usePortfolioStore((s) => s.allocation);
@@ -168,9 +169,31 @@ function EquityCurvePanel() {
   );
 }
 
+function SummaryStat({ label, value, accent }: { label: string; value: string; accent?: string }) {
+  return (
+    <div className="flex items-baseline gap-2">
+      <span style={{ fontSize: 9, color: C.t3, letterSpacing: "0.12em" }}>{label}</span>
+      <span style={{ fontSize: 12, fontFamily: "'IBM Plex Mono', monospace", fontWeight: 700, color: accent ?? C.t1 }}>
+        {value}
+      </span>
+    </div>
+  );
+}
+
 export default function PortfolioAnalytics() {
+  const risk = useRiskStore((s) => s.portfolioRisk);
+
   return (
     <div className="h-full overflow-auto" style={{ background: C.bg2 }}>
+      <div
+        className="flex items-center gap-6 px-4"
+        style={{ height: 32, borderBottom: `1px solid ${C.border}`, background: C.surface }}
+      >
+        <SummaryStat label="NET EXP" value={fmtUsd(risk.net_exposure, 0)} accent={risk.net_exposure > 0 ? C.bullish : C.bearish} />
+        <SummaryStat label="GROSS EXP" value={fmtUsd(risk.gross_exposure, 0)} />
+        <SummaryStat label="LEVERAGE" value={`${fmt(risk.leverage, 1)}x`} accent={risk.leverage > 3 ? C.danger : C.t1} />
+        <SummaryStat label="BETA EXP" value={fmt(risk.beta_exposure, 2)} />
+      </div>
       <div className="grid grid-cols-12 gap-px p-1" style={{ background: C.border }}>
         <div className="col-span-12 lg:col-span-4" style={{ background: C.bg }}>
           <AllocationByAssetPanel />

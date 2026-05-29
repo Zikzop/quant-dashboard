@@ -14,6 +14,8 @@ import {
   Sparkline,
 } from "@/components/ui/primitives";
 import { useRiskStore } from "@/state/stores/useRiskStore";
+import { useMarketStore } from "@/state/stores/useMarketStore";
+import { useDecision } from "@/hooks/useDecision";
 
 function PropFirmDeathWidget() {
   const pf = useRiskStore((s) => s.propFirm);
@@ -205,9 +207,65 @@ function CorrelationRiskPanel() {
   );
 }
 
+function TailRiskPanel() {
+  const rm = useRiskStore((s) => s.riskMetrics);
+  const market = useMarketStore((s) => s.market);
+  const decision = useDecision(market);
+
+  return (
+    <Panel label="TAIL RISK & EXPECTED SHORTFALL" accent={C.critical}>
+      <div className="grid grid-cols-2 gap-1 mb-2">
+        <StatCell label="ES 95 (CVaR)" value={fmtUsd(rm.cvar_95, 0)} accent={C.bearish} large />
+        <StatCell label="ES 99" value={fmtUsd(rm.cvar_99, 0)} accent={C.critical} large />
+      </div>
+      {decision && (
+        <>
+          <Divider label="REGIME-CONDITIONED" />
+          <StatRow label="TAIL RISK" value={decision.risk.tailRisk.replace(/_/g, " ")} accent={decision.risk.tailRisk === "LOW" ? C.bullish : C.danger} />
+          <StatRow label="KURTOSIS" value={fmt(decision.risk.tailKurtosis, 2)} sub="excess" />
+          <StatRow label="SKEW" value={fmt(decision.risk.skew, 2)} />
+        </>
+      )}
+    </Panel>
+  );
+}
+
+function RegimeRiskPanel() {
+  const market = useMarketStore((s) => s.market);
+  const decision = useDecision(market);
+
+  if (!decision) {
+    return (
+      <Panel label="REGIME RISK" accent={C.purple}>
+        <span style={{ fontSize: 10, color: C.t2 }}>Awaiting regime data...</span>
+      </Panel>
+    );
+  }
+
+  const stabColor = decision.transition.stability === "STABLE" ? C.bullish : decision.transition.stability === "FRAGILE" ? C.warning : C.danger;
+
+  return (
+    <Panel label="REGIME RISK" accent={C.purple} tag={decision.transition.stability}>
+      <StatRow label="CURRENT REGIME" value={decision.transition.current.replace(/_/g, " ")} />
+      <StatRow label="TRANSITION PROB" value={`${(decision.transition.transitionProbability * 100).toFixed(0)}%`} accent={stabColor} />
+      <StatRow label="INSTABILITY" value={`${(decision.transition.instability * 100).toFixed(0)}%`} accent={stabColor} />
+      <StatRow label="LIFECYCLE PHASE" value={decision.lifecycle.phaseLabel} accent={C.amber} />
+      <StatRow label="UNCERTAINTY" value={decision.uncertaintyLevel} accent={decision.uncertaintyLevel === "LOW" ? C.bullish : C.warning} />
+    </Panel>
+  );
+}
+
 export default function RiskCommandCenter() {
   return (
     <div className="h-full overflow-auto" style={{ background: C.bg2 }}>
+      <div
+        className="flex items-center px-4"
+        style={{ height: 32, borderBottom: `1px solid ${C.border}`, background: C.surface }}
+      >
+        <span style={{ fontSize: 10, color: C.t1, letterSpacing: "0.14em", fontWeight: 700 }}>
+          RISK GOVERNANCE · VaR · CVaR · DRAWDOWN · REGIME RISK · TAIL RISK
+        </span>
+      </div>
       <div className="grid grid-cols-12 gap-px p-1" style={{ background: C.border }}>
         {/* Top: Prop Firm Death — full width critical widget */}
         <div className="col-span-12 lg:col-span-4" style={{ background: C.bg }}>
@@ -229,6 +287,12 @@ export default function RiskCommandCenter() {
         </div>
         <div className="col-span-12 lg:col-span-4" style={{ background: C.bg }}>
           <CorrelationRiskPanel />
+        </div>
+        <div className="col-span-12 lg:col-span-6" style={{ background: C.bg }}>
+          <TailRiskPanel />
+        </div>
+        <div className="col-span-12 lg:col-span-6" style={{ background: C.bg }}>
+          <RegimeRiskPanel />
         </div>
       </div>
     </div>

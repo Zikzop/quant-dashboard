@@ -8,11 +8,11 @@ import type { WorkspaceId } from "@/types/market";
 
 const WORKSPACES: Array<{ id: WorkspaceId; label: string; key: string; accent: string }> = [
   { id: "chart", label: "CHART", key: "1", accent: C.t1 },
-  { id: "risk", label: "RISK", key: "2", accent: C.danger },
-  { id: "market", label: "MARKET", key: "3", accent: C.cyan },
-  { id: "execution", label: "EXECUTION", key: "4", accent: C.blue },
-  { id: "alpha", label: "ALPHA", key: "5", accent: C.purple },
-  { id: "portfolio", label: "PORTFOLIO", key: "6", accent: C.amber },
+  { id: "research", label: "RESEARCH", key: "2", accent: C.purple },
+  { id: "risk", label: "RISK", key: "3", accent: C.danger },
+  { id: "portfolio", label: "PORTFOLIO", key: "4", accent: C.amber },
+  { id: "execution", label: "EXECUTION", key: "5", accent: C.blue },
+  { id: "market", label: "MARKET", key: "6", accent: C.cyan },
   { id: "terminal", label: "TERMINAL", key: "7", accent: C.bullish },
 ];
 

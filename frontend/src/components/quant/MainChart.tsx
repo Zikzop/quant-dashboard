@@ -871,12 +871,7 @@ export default function MainChart({
         )}
         {hasData && (
           <>
-            <RegimeIntelligenceOverlay market={market} decision={decision} />
-            <EntryQualityOverlay quality={entryQuality} decision={decision} />
-            <VolatilityStateOverlay market={market} />
             <MTFAlignmentOverlay />
-            <ExecutionQualityOverlay />
-            <AlphaHealthOverlay />
             <ChartLegendBar />
           </>
         )}

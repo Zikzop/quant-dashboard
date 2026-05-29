@@ -14,6 +14,7 @@ import {
 } from "@/components/ui/primitives";
 import { useExecutionStore } from "@/state/stores/useExecutionStore";
 import { useMarketStore } from "@/state/stores/useMarketStore";
+import { useDecision } from "@/hooks/useDecision";
 import type { OrderStatus } from "@/types/market";
 
 function statusColor(s: OrderStatus): string {
@@ -156,10 +157,46 @@ function BrokerHealthPanel() {
   );
 }
 
+function ExecutionDeskPanel() {
+  const market = useMarketStore((s) => s.market);
+  const decision = useDecision(market);
+
+  if (!decision) return null;
+  const e = decision.execution;
+
+  return (
+    <Panel label="EXECUTION DESK · SESSION & LIQUIDITY" accent={C.blue}>
+      <div className="grid grid-cols-4 gap-1">
+        <StatCell label="SESSION" value={e.session.replace(/_/g, " ")} accent={e.sessionQuality > 0.7 ? C.bullish : C.warning} />
+        <StatCell label="LIQUIDITY" value={e.liquidity} accent={e.liquidity === "DEEP" ? C.bullish : e.liquidity === "ILLIQUID" ? C.danger : C.t1} />
+        <StatCell label="FILL QUALITY" value={`${((1 - e.executionRisk) * 100).toFixed(0)}%`} accent={e.executionRisk < 0.4 ? C.bullish : C.warning} />
+        <StatCell label="EXEC COST" value={`${e.expectedSlippageBps.toFixed(1)}bps`} accent={e.expectedSlippageBps > 5 ? C.danger : C.t1} />
+      </div>
+      <Divider label="READINESS" />
+      <div className="grid grid-cols-3 gap-1">
+        <StatCell label="SPREAD" value={`${e.spreadBps.toFixed(1)}bps`} />
+        <StatCell label="SLIPPAGE EST" value={`${e.expectedSlippageBps.toFixed(1)}bps`} />
+        <StatCell label="SESSION Q" value={`${(e.sessionQuality * 100).toFixed(0)}%`} />
+      </div>
+    </Panel>
+  );
+}
+
 export default function ExecutionMonitor() {
   return (
     <div className="h-full overflow-auto" style={{ background: C.bg2 }}>
+      <div
+        className="flex items-center px-4"
+        style={{ height: 32, borderBottom: `1px solid ${C.border}`, background: C.surface }}
+      >
+        <span style={{ fontSize: 10, color: C.t1, letterSpacing: "0.14em", fontWeight: 700 }}>
+          EXECUTION DESK · SLIPPAGE · FILL QUALITY · LATENCY · SESSION · LIQUIDITY
+        </span>
+      </div>
       <div className="grid grid-cols-12 gap-px p-1" style={{ background: C.border }}>
+        <div className="col-span-12" style={{ background: C.bg }}>
+          <ExecutionDeskPanel />
+        </div>
         <div className="col-span-12" style={{ background: C.bg }}>
           <LiveOrdersPanel />
         </div>

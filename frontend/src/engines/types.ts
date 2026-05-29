@@ -206,6 +206,69 @@ export interface RiskState {
 export type DirectionBias = "LONG" | "SHORT" | "NEUTRAL";
 export type EntryQualityRating = "HIGH" | "ACCEPTABLE" | "LOW_EDGE" | "AVOID";
 
+// ── CAPITAL ALLOCATION ───────────────────────────────────────────────────────
+
+export type RiskSizeRecommendation =
+  | "NO_TRADE"
+  | "QUARTER_R"
+  | "HALF_R"
+  | "THREE_QUARTER_R"
+  | "FULL_SIZE";
+
+export interface CapitalAllocationState {
+  recommendation: RiskSizeRecommendation;
+  recommendedRiskR: number;
+  recommendedSizePct: number;
+  exposureMultiplier: number;
+  conviction: number;
+  riskBudgetUsagePct: number;
+  rationale: string[];
+}
+
+// ── OPPORTUNITY RANKING ──────────────────────────────────────────────────────
+
+export interface OpportunityRankEntry {
+  assetId: string;
+  rank: number;
+  edgeScore: number;
+  transitionRisk: number;
+  alignmentScore: number;
+  expectedDrawdownPct: number;
+  uncertaintyScore: number;
+  compositeScore: number;
+  actionable: boolean;
+}
+
+export interface OpportunityRankingState {
+  ranked: OpportunityRankEntry[];
+  best: OpportunityRankEntry | null;
+  focusAsset: string;
+}
+
+// ── REGIME LIFECYCLE ─────────────────────────────────────────────────────────
+
+export type RegimePhase =
+  | "EARLY_TREND"
+  | "MID_TREND"
+  | "LATE_TREND"
+  | "EXHAUSTION"
+  | "EARLY_MEAN_REVERSION"
+  | "LATE_MEAN_REVERSION"
+  | "COMPRESSION"
+  | "CRISIS_ENTRY"
+  | "RECOVERY"
+  | "UNDEFINED";
+
+export interface RegimeLifecycleState {
+  currentRegime: string;
+  regimeAgeBars: number;
+  regimePhase: RegimePhase;
+  expectedRemainingBars: number | null;
+  regimeStability: StabilityLevel;
+  lifecyclePct: number;
+  phaseLabel: string;
+}
+
 export interface DecisionState {
   structuralRegime: StructuralRegime;
   microRegime: MicroRegime;
@@ -232,4 +295,6 @@ export interface DecisionState {
   correlation: CorrelationState;
   execution: ExecutionState;
   risk: RiskState;
+  capital: CapitalAllocationState;
+  lifecycle: RegimeLifecycleState;
 }

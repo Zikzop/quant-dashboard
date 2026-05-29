@@ -388,6 +388,7 @@ export interface HistoricalContext {
 
 export type WorkspaceId =
   | "chart"
+  | "research"
   | "risk"
   | "market"
   | "execution"

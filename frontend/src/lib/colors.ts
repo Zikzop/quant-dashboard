@@ -7,10 +7,10 @@ export const C = {
   borderMid: "#26262c",
   borderHi: "#34343c",
 
-  t1: "#e8e8ea",
-  t2: "#8a8a94",
-  t3: "#555560",
-  t4: "#3a3a44",
+  t1: "#f0f0f2",
+  t2: "#a8a8b4",
+  t3: "#6e6e7a",
+  t4: "#4a4a56",
 
   bullish: "#22c55e",
   bullishDim: "rgba(34,197,94,0.15)",
